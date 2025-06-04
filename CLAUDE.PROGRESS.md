@@ -64,3 +64,15 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - Updated import paths to use correct structure (e.g., `from domain.X import ...` instead of `from server.domain.X import ...`)
 - Implemented API key validator with timing-safe comparison using hmac.compare_digest
 - Created comprehensive unit tests for API key validator (6 tests, all passing)
+- **NEW**: Re-implemented domain/dependency_set.py with improved design:
+  - DependencyFile now stores content_hash instead of raw content
+  - DependencySet uses generic versions dict instead of specific version fields
+  - Added to_index_dict() method for JSON serialization
+  - Improved hash calculation with sorted operations for determinism
+- **NEW**: Created comprehensive unit tests for dependency_set.py:
+  - Tests for deterministic hash calculation
+  - Tests for manager differentiation
+  - Tests for file order independence
+  - Tests for index dictionary conversion
+  - Tests for file hash calculation with various sizes
+- **NEW**: Added calculate_file_hash() utility function for content hashing
