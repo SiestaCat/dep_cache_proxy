@@ -20,7 +20,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 
 #### Infrastructure Layer
 - ✅ `infrastructure/file_system_cache_repository.py` - File system implementation (2025-01-06)
-- [ ] `infrastructure/api_key_validator.py` - API key validation
+- ✅ `infrastructure/api_key_validator.py` - API key validation (2025-01-06)
 - [ ] `infrastructure/docker_utils.py` - Docker utilities for version handling
 
 #### Application Layer
@@ -35,6 +35,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 #### Testing
 - ✅ Unit tests for domain models - `tests/test_dependency_set.py` (2025-01-06)
 - ✅ Integration tests for repositories - `tests/test_file_system_cache_repository.py` (2025-01-06)
+- ✅ Unit tests for API key validator - `tests/test_api_key_validator.py` (2025-01-06)
 - [ ] API endpoint tests
 - [ ] End-to-end tests with Docker
 
@@ -61,3 +62,5 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - Added hash calculation utilities to infrastructure layer
 - **FIXED**: Corrected project structure - moved files from incorrectly created server/ directory to proper root-level directories
 - Updated import paths to use correct structure (e.g., `from domain.X import ...` instead of `from server.domain.X import ...`)
+- Implemented API key validator with timing-safe comparison using hmac.compare_digest
+- Created comprehensive unit tests for API key validator (6 tests, all passing)
