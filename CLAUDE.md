@@ -20,7 +20,13 @@ DepCacheProxy is a dependency caching proxy system designed to cache and serve d
 
 ## Architecture
 
-This server component follows Domain-Driven Design (DDD) and SOLID principles:
+This server component follows Domain-Driven Design (DDD) and SOLID principles.
+
+**⚠️ IMPORTANT - Project Structure**: 
+- **DO NOT create a `server/` directory**
+- All code should be organized directly in the root-level directories: `domain/`, `infrastructure/`, `application/`, `interfaces/`
+- Import paths should use these directories directly (e.g., `from domain.cache_repository import ...`)
+- The project structure is flat, without a parent `server/` directory
 
 ### Server Features
 - Stores individual files as blobs in `cache/objects/` (content-addressable)
