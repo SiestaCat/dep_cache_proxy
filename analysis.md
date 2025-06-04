@@ -1,176 +1,72 @@
 # Análisis Extendido de **DepCacheProxy** (`dep_cache_proxy`)
 
-Este documento detalla de forma exhaustiva el diseño, arquitectura y flujo de trabajo del proyecto **DepCacheProxy**, una librería/proxy para cachear y servir dependencias de paquetes (por ejemplo, `node_modules`, `vendor`) con el fin de acelerar procesos de construcción (por ejemplo, en contenedores Docker) y servir como backend de descarga en entornos con redes inestables. Está diseñado en Python, siguiendo principios DDD (Domain-Driven Design) y SOLID, y dividido en dos componentes principales: cliente y servidor.
+Este documento actualiza y amplía el análisis detallado de **DepCacheProxy**, incorporando nuevos requisitos sobre versiones, uso de Docker para instalación de dependencias, constantes de algoritmo de hash, estructura de índices de hash y consideraciones de pruebas. Está pensado para ser consumido por otras IA (por ejemplo, Claude) y como guía completa para desarrolladores.
 
 ---
 
 ## Tabla de Contenidos
 
-- [Análisis Extendido de **DepCacheProxy** (`dep_cache_proxy`)](#análisis-extendido-de-depcacheproxy-dep_cache_proxy)
-  - [Tabla de Contenidos](#tabla-de-contenidos)
-  - [1. Objetivos y Contexto](#1-objetivos-y-contexto)
-  - [2. Requisitos Funcionales y No Funcionales](#2-requisitos-funcionales-y-no-funcionales)
-    - [2.1 Requisitos Funcionales (RF)](#21-requisitos-funcionales-rf)
-    - [2.2 Requisitos No Funcionales (RNF)](#22-requisitos-no-funcionales-rnf)
-  - [3. Visión General de la Arquitectura (DDD + SOLID)](#3-visión-general-de-la-arquitectura-ddd--solid)
-    - [Principios SOLID aplicados (ejemplos)](#principios-solid-aplicados-ejemplos)
-  - [4. Componentes Principales](#4-componentes-principales)
-    - [4.1 Cliente (`dep_cache_proxy_client`)](#41-cliente-dep_cache_proxy_client)
-      - [4.1.1 Parámetros CLI y Validaciones](#411-parámetros-cli-y-validaciones)
-    - [4.2 Servidor (`dep_cache_proxy_server`)](#42-servidor-dep_cache_proxy_server)
-      - [4.2.1 Parámetros CLI y Validaciones](#421-parámetros-cli-y-validaciones)
-  - [5. Modelo de Dominio y Hashing](#5-modelo-de-dominio-y-hashing)
-    - [5.1 Entidad: `DependencySet`](#51-entidad-dependencyset)
-    - [5.2 Entidad: `CacheObject`](#52-entidad-cacheobject)
-    - [5.3 Entidad/Agregado: `CacheRepository` (Interfaz)](#53-entidadagregado-cacherepository-interfaz)
-    - [5.4 Dominio: `HashCalculator`](#54-dominio-hashcalculator)
-  - [6. Estructura de Directorios en Cache](#6-estructura-de-directorios-en-cache)
-  - [7. Flujo de Trabajo Completo](#7-flujo-de-trabajo-completo)
-  - [8. Detalles de Implementación y Pseudocódigo](#8-detalles-de-implementación-y-pseudocódigo)
-    - [8.1 Pseudocódigo Cliente](#81-pseudocódigo-cliente)
-      - [Comentarios de Pseudocódigo Cliente](#comentarios-de-pseudocódigo-cliente)
-    - [8.2 Pseudocódigo Servidor](#82-pseudocódigo-servidor)
-      - [Comentarios de Pseudocódigo Servidor](#comentarios-de-pseudocódigo-servidor)
-  - [9. API HTTP y Esquema de Rutas](#9-api-http-y-esquema-de-rutas)
-    - [9.1 Rutas Principales](#91-rutas-principales)
-    - [9.2 Esquema de Request y Response](#92-esquema-de-request-y-response)
-      - [9.2.1 `CacheRequestDTO`](#921-cacherequestdto)
-      - [9.2.2 `CacheResponseDTO`](#922-cacheresponsedto)
-  - [10. Escenarios de Uso y Casos de Prueba](#10-escenarios-de-uso-y-casos-de-prueba)
-    - [10.1 Escenario 1: Cache hit en NPM (Servidor público)](#101-escenario-1-cache-hit-en-npm-servidor-público)
-    - [10.2 Escenario 2: Cache miss en Composer (Servidor con API key)](#102-escenario-2-cache-miss-en-composer-servidor-con-api-key)
-    - [10.3 Escenario 3: Petición con API key inválida](#103-escenario-3-petición-con-api-key-inválida)
-    - [10.4 Escenario 4: Manager no soportado](#104-escenario-4-manager-no-soportado)
-  - [11. Notas de Seguridad, Escalabilidad y Errores Comunes](#11-notas-de-seguridad-escalabilidad-y-errores-comunes)
-    - [11.1 Seguridad](#111-seguridad)
-    - [11.2 Escalabilidad y Concurrencia](#112-escalabilidad-y-concurrencia)
-    - [11.3 Errores Comunes y Cómo Manejarlos](#113-errores-comunes-y-cómo-manejarlos)
-  - [12. Conclusiones](#12-conclusiones)
+1. [Objetivos y Contexto](#objetivos-y-contexto)  
+2. [Requisitos Funcionales y No Funcionales](#requisitos-funcionales-y-no-funcionales)  
+3. [Visión General de la Arquitectura (DDD + SOLID)](#visión-general-de-la-arquitectura-ddd--solid)  
+4. [Componentes Principales](#componentes-principales)  
+   1. [Cliente (`dep_cache_proxy_client`)](#cliente-dep_cache_proxy_client)  
+   2. [Servidor (`dep_cache_proxy_server`)](#servidor-dep_cache_proxy_server)  
+5. [Modelo de Dominio y Hashing](#modelo-de-dominio-y-hashing)  
+6. [Estructura de Directorios en Cache](#estructura-de-directorios-en-cache)  
+7. [Flujo de Trabajo Completo](#flujo-de-trabajo-completo)  
+8. [Detalles de Implementación y Pseudocódigo](#detalles-de-implementación-y-pseudocódigo)  
+   1. [Pseudocódigo Cliente](#pseudocódigo-cliente)  
+   2. [Pseudocódigo Servidor](#pseudocódigo-servidor)  
+   3. [Funciones Auxiliares Comunes](#funciones-auxiliares-comunes)  
+9. [API HTTP y Esquema de Rutas](#api-http-y-esquema-de-rutas)  
+10. [Estructura de Pruebas](#estructura-de-pruebas)  
+11. [Escenarios de Uso y Casos de Prueba](#escenarios-de-uso-y-casos-de-prueba)  
+12. [Notas de Seguridad, Escalabilidad y Errores Comunes](#notas-de-seguridad-escalabilidad-y-errores-comunes)  
+13. [Facilidad para Añadir Nuevos Managers](#facilidad-para-añadir-nuevos-managers)  
+14. [Conclusiones](#conclusiones)  
 
 ---
 
 ## 1. Objetivos y Contexto
 
+Este análisis describe cómo diseñar **DepCacheProxy** para:
+
 1. **Cachear dependencias**  
-   - Guardar localmente (en disco del servidor) los paquetes descargados a partir de `package.json` + `package.lock` (o `composer.json` + `composer.lock`) para evitar descargas redundantes y ahorrar ancho de banda y tiempo.  
-   - Cada combinación única de ficheros de definición + lockfile genera un _hash específico_. Ese hash identifica una “versión de conjunto de dependencias”.  
+   - Guardar localmente (en disco del servidor) los paquetes descargados a partir de `package.json` + `package.lock` (o `composer.json` + `composer.lock`), evitando redundancias.  
+   - Cada combinación de ficheros de definición + lockfile + versiones genera un _hash específico_.  
 
-2. **Proveer un proxy/respaldo de descarga**  
-   - En entornos donde la red del cliente sea inestable (timeouts, latencia), el servidor **DepCacheProxy** actúa como fuente secundaria para que el cliente recupere el ZIP preconstruido de dependencias en lugar de descargar directo de npm o Packagist.  
+2. **Proveer proxy/respaldo de descarga**  
+   - En entornos con red inestable, el servidor de cache provee un ZIP preconstruido de `node_modules` o `vendor`, evitando timeouts.  
 
-3. **Acelerar procesos de construcción Docker u otros pipelines**  
-   - En lugar de ejecutar siempre `npm install` / `npm ci` o `composer install`, se puede descargar el ZIP que contiene la carpeta `node_modules` o `vendor` ya cargada, evitando tiempo de instalación.  
+3. **Acelerar pipelines (por ejemplo, Docker)**  
+   - Descarga del ZIP en lugar de ejecutar `npm install` o `composer install` localmente.  
 
-4. **Soporte extensible a múltiples gestores de dependencias**  
-   - Aunque se muestran ejemplos con NPM y Composer, la librería **DepCacheProxy** está diseñada de forma genérica para “package managers” arbitrarios.  
-   - Puntos clave a parametrizar:  
-     - Tipo de gestor (NPM/Composer/Otros)  
-     - Versiones posibles de NodeJS/NPM o PHP/Composer (opcionales)  
-     - Comandos concretos para instalar dependencias  
+4. **Gestión de versiones y Docker**  
+   - Si el cliente solicita una versión de Node/NPM o PHP/Composer distinta a las soportadas, el servidor puede:  
+     - **Error** (por defecto), o  
+     - **Usar Docker** para ejecutar la imagen apropiada y generar las dependencias.  
 
-5. **Principios de diseño**  
-   - **DDD (Domain-Driven Design)**: Separar capa de dominio (modelo de hashes, objetos de cache, lógica de invalidez), capa de aplicación (servicios de generación de paquetes, compresión, verificación de API key, reconstrucción de ZIP) e infraestructura (persistencia en disco, HTTP server).  
-   - **SOLID**: Clases limpias, cada módulo con responsabilidad única, inyección de dependencias para facilitar pruebas unitarias y extensibilidad.  
+5. **Almacenamiento de índices de hash**  
+   - Además de guardar los archivos cacheados, se debe mantener una carpeta `cache/indices/` donde residan los índices de hash (metadatos) nombrados con la versión del manager.  
 
-6. **Lenguaje y Paradigmas**  
-   - **Python 3.x**, aprovechando módulos estándar (`hashlib`, `tempfile`, `subprocess`, `zipfile`, `http.server` o frameworks ligeros como FastAPI/Flask).  
-   - Arquitectura modular: `domain/`, `application/`, `infrastructure/`, `interfaces/` (para DDD).  
+6. **Pruebas**  
+   - Se definirán pruebas unitarias, de integración, funcionales y end-to-end.  
 
-7. **Dos Partes**  
-   - **Cliente CLI**: Ejecutable `dep_cache_proxy_client` que:  
-     1. Recoge ficheros de definición de dependencias (`package.json`, `package.lock` o `composer.json`, `composer.lock`) y versión(es) opcionales.  
-     2. Calcula un hash local de la combinación de ficheros.  
-     3. Llama al endpoint HTTP del servidor (`dep_cache_proxy_server`) con parámetros: URL, gestor, API key (opcional), lista de ficheros (embebidos o multipart).  
-     4. Si existe la cache en servidor, recibe una URL de descarga directa. Si no existe, espera a que el servidor genere el ZIP y devuelva URL.  
-     5. Descarga el ZIP y descomprime en la carpeta propiamente correspondiente (`node_modules/` o `vendor/`).  
+7. **Extensibilidad a nuevos managers**  
+   - El sistema debe permitir agregar fácilmente gestores de dependencias adicionales (por ejemplo, Yarn, Pip, etc.) con mínima configuración.  
 
-   - **Servidor HTTP**: Ejecutable `dep_cache_proxy_server` que:  
-     1. Expone ruta HTTP (por ejemplo, `POST /v1/cache`) para recibir la request de cliente.  
-     2. Valida API key (a menos que `--is_public` true).  
-     3. Valida que el `manager` (en lugar de “type”) es soportado (`npm`, `composer`, o extensible).  
-     4. Calcula el hash basado en el contenido de ficheros recibidos.  
-     5. Busca en su árbol de cache (`cache/objects/`) si existe la carpeta de objetos para ese hash.  
-        - Si existe, retorna inmediatamente la URL de descarga.  
-        - Si no, procede a crear un folder temporal:  
-          1. Extrae ficheros `package.json` y `package.lock` en dicho temporal.  
-          2. Ejecuta comando de instalación (`npm ci --ignore-scripts --cache .` o `composer install --no-dev --prefer-dist`).  
-          3. Cuando finaliza, copia la carpeta `node_modules`/`vendor` al directorio de cache estructurado por hash (ver punto 6).  
-          4. Genera un ZIP con contenido de esa carpeta cacheada.  
-          5. Guarda en `cache/objects/` los metadatos:  
-             - Archivo `<hash>.<manager>.hash` que contiene lista de paths relativos y checksums (opcional) para permitir reconstrucción de ZIP sin tener que descomprimir el cache (p. ej. lista de ficheros con tamaños y rutas).  
-          6. Ofrece al cliente la URL única (por ejemplo, `http://<host>:<port>/download/<hash>.zip`).  
-     6. Responde con JSON `{ "download_url": "http://..." }`.  
+8. **Diseño DDD + SOLID**  
+   - Separación de dominio, aplicación e infraestructura.  
+   - Cada módulo con responsabilidad única.  
 
-8. **API Keys y Seguridad**  
-   - El servidor puede operar en modo **público** (`--is_public=true`), en cuyo caso no valida keys. Por defecto (`--is_public=false`), exige al cliente enviar `--apikey=KEY` y lo compara contra la lista administrada (`--api-keys="KEY1,KEY2,KEY3"`).  
-   - El endpoint devolverá `401 Unauthorized` si falla la validación de API key.  
+9. **Implementación en Python**  
+   - Uso de constantes para algoritmos de hash y rutas de directorios.  
+   - Uso de Docker (si se elige) para aislar versiones.  
 
-9. **Cache Persistente**  
-   - **cache_dir**: directorio configurable donde se guarda la estructura de cache (por defecto `./cache/`).  
-   - Dentro de `cache_dir` encontramos:  
-     - `objects/` (estructura basada en hash de objetos)  
-     - `metadata/` (opcional: logs de requests, índice de hashes, expiración)  
-
-10. **Llaves de Diseño**  
-    - Cada combinación de ficheros y versiones opcionales produce un único hash SHA256 (o SHA1+fecha, configurable).  
-    - Estructura de directorios en base a hash:  
-      ```
-      cache/
-      └── objects/
-          ├── 12/34/1234abcd.../
-          │   ├── node_modules/...
-          │   └── <hash>.npm.hash
-          ├── ab/cd/abcd1234.../
-          │   ├── vendor/...
-          │   └── <hash>.composer.hash
-          └── ...
-      ```
-    - El archivo `<hash>.<manager>.hash` contiene:  
-      - Lista de rutas relativas dentro de la carpeta final (para reconstruir el ZIP sin recorrrer todo el árbol).  
-      - Checksums de cada archivo (opcionalmente) para validar integridad.  
-
-11. **Parámetros de CLI**  
-    - **Cliente**:  
-      ```
-      dep_cache_proxy_client <endpoint_url> <manager> --apikey=<APIKEY> --files=<file1>,<file2>[,...] [--node-version=<VERSION>] [--npm-version=<VERSION>] [--php-version=<VERSION>]
-      ```  
-      > Nótese que renombramos el parámetro `<type>` a **`<manager>`** para mayor claridad: ej. `npm`, `composer`, `yarn`, etc.  
-      - `<endpoint_url>`: dirección base del servidor (p. ej. `https://my.website/uri`).  
-      - `<manager>`: string identificador del gestor de dependencias (p. ej. `npm`, `composer`).  
-      - `--apikey`: clave API del cliente (si se requiere).  
-      - `--files`: lista separada por comas de ficheros de definición + lockfile. Ej: `package.json,package.lock` o `composer.json,composer.lock`.  
-      - Flags opcionales:  
-        - `--node-version`: versión de NodeJS (p. ej. `14.17.0`).  
-        - `--npm-version`: versión de NPM (p. ej. `6.14.13`).  
-        - `--php-version`: versión de PHP (para Composer).  
-      - Internamente, el cliente:  
-        1. Lee los ficheros y produce el hash.  
-        2. Hace `POST` a `/<versión_api>/cache` con JSON/multipart:  
-           ```jsonc
-           {
-             "manager": "npm",
-             "hash": "abcdef1234...",
-             "files": {
-               "package.json": "<contenido_base64>",
-               "package.lock": "<contenido_base64>"
-             },
-             "versions": {
-               "node": "14.17.0",
-               "npm": "6.14.13"
-             }
-           }
-           ```  
-        3. Recibe respuesta con `{ "download_url": "http://..." }`.  
-        4. Descarga el ZIP y lo descomprime en `./node_modules/`.
-
-    - **Servidor**:  
-      ```
-      dep_cache_proxy_server <port> --cache_dir=<CACHE_DIR> [--is_public] [--api-keys=<KEY1>,<KEY2>,...]
-      ```  
-      - `<port>`: puerto donde escuchar (p. ej. `8080`).  
-      - `--cache_dir`: ruta base para cache (p. ej. `/var/lib/dep_cache_proxy/cache`).  
-      - `--is_public`: flag booleana (default `false`) que deshabilita validación de API key.  
-      - `--api-keys`: lista separada por comas de API keys válidas (solo si `--is_public` es `false`).  
+10. **Dos Partes**  
+   - **Cliente CLI**: `dep_cache_proxy_client`.  
+   - **Servidor HTTP**: `dep_cache_proxy_server`.  
 
 ---
 
@@ -178,138 +74,223 @@ Este documento detalla de forma exhaustiva el diseño, arquitectura y flujo de t
 
 ### 2.1 Requisitos Funcionales (RF)
 
-1. **RF1**: El sistema debe aceptar peticiones de clientes que contengan:  
-   - Identificador de gestor de dependencias (`manager`).  
-   - Ficheros de definición (`package.json`, `package.lock`, `composer.json`, `composer.lock`, etc.).  
-   - Versiones opcionales de entornos (`node`, `npm`, `php`).  
-   - API key (si no está en modo público).  
+1. **RF1**: El cliente CLI (`dep_cache_proxy_client`) debe aceptar:  
+   - `<endpoint_url>` (URL del servidor).  
+   - `<manager>` (identificador, por ejemplo, `npm`, `composer`).  
+   - `--apikey=<APIKEY>` (opcional si el servidor es público).  
+   - `--files=<file1>,<file2>` (definición + lockfile).  
+   - **Opcionales en el cliente** (pero **obligatorios en el servidor**):
+     - `--node-version=<VERSIÓN>` y `--npm-version=<VERSIÓN>` (para `npm`).  
+     - `--php-version=<VERSIÓN>` (para `composer`).  
 
-2. **RF2**: Calcular un hash único basado en:  
-   - Contenido de cada fichero enviado.  
-   - (Opcional) versión(es) especificadas.  
-   - Gestor de dependencias.  
-   - El hash resultante debe ser determinista para identidades de contenidos idénticos.  
+2. **RF2**: El servidor CLI (`dep_cache_proxy_server`) debe aceptar (y obligatoriamente):
+   - `<port>` (puerto HTTP).  
+   - `--cache_dir=<CACHE_DIR>` (directorio base de cache).  
+   - `--supported-versions-node=<VERSIÓN_NODO>,<VERSIÓN_NPM>,...` (lista de pares `node_version:npm_version` separados por comas).  
+   - `--supported-versions-php=<VERSIÓN_PHP>,...` (si usa Composer).  
+   - `--use-docker-on-version-mismatch` (booleano; si se habilita, en caso de que el cliente solicite versión no soportada, el servidor genera dependencias usando Docker).  
+   - `--is_public` (booleano, opcional; default `false`).  
+   - `--api-keys=<KEY1>,<KEY2>,...` (obligatorio si `--is_public=false`).
 
-3. **RF3**: Validar que el `manager` es soportado. Si no, devolver `400 Bad Request` con mensaje “Manager no soportado”.
+3. **RF3**: Cálculo de **hash**:
+   - Utilizar constante global para el algoritmo de hash (por ejemplo, `HASH_ALGORITHM = "sha256"`).  
+   - Incluir en el hash:
+     1. `manager` (ej. `"npm"` o `"composer"`).  
+     2. Versiones solicitadas (por ejemplo, `"node=14.20.0"`, `"npm=6.14.13"`, `"php=8.1.0"`).  
+     3. Contenido exacto de cada fichero enviado (`.json`, `.lock`).  
+   - Almacenar en constantes:
+     ```python
+     HASH_ALGORITHM = "sha256"
+     HASH_BLOCK_SIZE = 8192
+     ```
+   - El hash resultante será un hex digest de 64 caracteres.
 
-4. **RF4**: Comprobar si existe cache para el hash calculado.  
-   - Si existe, responder inmediatamente con URL de descarga.  
-   - Si no existe, encolar/ejecutar proceso de generación de dependencias.  
+4. **RF4**: Estructura de cache en disco:
+   - **`cache/objects/`** → Carpeta base donde se guardan todos los archivos cacheados de `node_modules` o `vendor`.  
+     - Subdirectorios basados en los dos primeros pares de caracteres hexadecimales del hash (dos niveles).  
+     - En cada carpeta `<hash>.<manager>` se guarda:
+       - Todos los archivos de `node_modules/` o `vendor/`.
+       - Se genera un **índice de hash de archivos** (metadata) con nombre `<hash>.<manager>.<manager_version>.index` (por ejemplo, `ab12cd34.npm.14.20.0_6.14.13.index`).
+       - Se genera el ZIP `<hash>.zip`.  
+   - **`cache/indices/`** → Carpeta donde se almacenan únicamente los índices de hash (metadata) de cada combinación.  
+     - Cada archivo de índice debe incluir en su nombre:  
+       ```
+       <hash>.<manager>.<manager_version>.index
+       ```
+       - Para NPM, `manager_version` = `<node_version>_<npm_version>` (por ejemplo, `14.20.0_6.14.13`).  
+       - Para Composer, `manager_version` = `<php_version>` (por ejemplo, `8.1.0`).  
 
-5. **RF5**: Generar las dependencias en un directorio temporal, ejecutando comando adecuado:  
-   - NPM: `npm ci --ignore-scripts --cache .` (respetando `node-version` y `npm-version` si se proporcionan).  
-   - Composer: `composer install --no-dev --prefer-dist` (respetando `php-version`).  
-   - Otros gestores: comandos definidos en configuración o plugin.  
+5. **RF5**: Verificación de versiones:
+   - El servidor mantiene en memoria (o lee de configuración) las versiones soportadas para cada manager.  
+   - Si el cliente envía una combinación de versiones **que no coincide** con las soportadas:  
+     - **Si** `--use-docker-on-version-mismatch=false` → devolver `400 Bad Request` “Versión no soportada”.  
+     - **Si** `--use-docker-on-version-mismatch=true` → invocar `docker run` con la imagen apropiada para generar dependencias.  
 
-6. **RF6**: Copiar la carpeta resultante (`node_modules` o `vendor`) a la estructura de cache basada en hash (`cache/objects/<subdirs>`).  
+6. **RF6**: Proceso de generación de dependencias:
+   1. Crear carpeta temporal (`temp_dir`) para cada petición (por ejemplo, `/tmp/dep_cache_<hash>/`).  
+   2. Escribir en `temp_dir` los ficheros `.json` y `.lock` recibidos.  
+   3. Instalar dependencias:
+      - **Sin Docker** (versiones soportadas): ejecutar comandos locales:
+        - NPM: 
+          ```bash
+          npm ci --ignore-scripts --no-audit --cache .npm_cache
+          ```
+        - Composer:
+          ```bash
+          composer install --no-dev --prefer-dist --no-scripts
+          ```
+      - **Con Docker** (versiones no soportadas y `--use-docker-on-version-mismatch=true`):
+        - Para NPM:
+          ```bash
+          docker run --rm \
+            -v <temp_dir>:/usr/src/app \
+            -w /usr/src/app \
+            node:<node_version> \
+            sh -c "npm ci --ignore-scripts --no-audit --cache .npm_cache"
+          ```
+        - Para Composer:
+          ```bash
+          docker run --rm \
+            -v <temp_dir>:/app \
+            -w /app \
+            composer:<php_version> \
+            sh -c "composer install --no-dev --prefer-dist --no-scripts"
+          ```
+   4. Dentro de `temp_dir` habrá `node_modules/` o `vendor/`.  
+   5. Copiar recursivamente todo el contenido de `temp_dir/node_modules/` (o `vendor/`) a `cache/objects/<subdir>/.../<hash>.<manager>/node_modules` (o `vendor/`).  
+   6. Generar índice de hash de todos los archivos copiados, guardándolo en:
+      - `cache/objects/<h0h1>/<h2h3>/<hash>.<manager>/<hash>.<manager>.<manager_version>.index`  
+      - Y en paralelo, copiar ese índice a `cache/indices/<hash>.<manager>.<manager_version>.index`.  
+   7. Generar ZIP de la carpeta:
+      - `zip -r <hash>.zip node_modules/` (o `vendor/`).  
+      - Mover `zip` a `cache/objects/.../<hash>.zip`.  
+   8. Limpiar `temp_dir`.  
 
-7. **RF7**: Generar archivo de metadatos `<hash>.<manager>.hash` dentro de la carpeta cacheada, listando:  
-   - Rutas relativas de todos los archivos/carpetas cacheadas.  
-   - Opcionalmente, checksums individuales.  
+7. **RF7**: Cliente debe:
+   - Calcular hash local (usando constantes de algoritmo).  
+   - Enviar JSON al servidor con:
+     - `manager`, `hash`, `files` (base64), `versions`.  
+   - Descargar el ZIP si es “hit” o esperar a que se genere en caso de “miss”.  
+   - Descomprimir en la carpeta local de dependencias (`node_modules/` o `vendor/`).  
 
-8. **RF8**: Comprimir la carpeta cacheada en un ZIP (`<hash>.zip`) y exponer endpoint para descargarlo:  
-   - `GET /download/<hash>.zip` ⇒ entrega el ZIP.  
-
-9. **RF9**: Si el servidor está en modo cerrado (`--is_public=false`), validar API key en cada petición.  
-
-10. **RF10**: El cliente debe:  
-    - Recolectar ficheros definidos en `--files`.  
-    - Calcular localmente el mismo hash que el servidor.  
-    - Hacer `POST` al servidor con datos codificados (JSON o multipart).  
-    - Descargar ZIP en caso necesario y descomprimir en la carpeta de dependencias local.  
-
-11. **RF11**: Proveer logs claros de cada paso, errores significativos y métricas (tiempo de cache hit, hit ratio, tiempo de instalación). (Extensible)  
+8. **RF8**: Pruebas:
+   - **Pruebas Unitarias**:  
+     - `HashCalculator` → casos de hash idéntico con entradas iguales.  
+     - `ApiKeyValidator` → validar claves válidas e inválidas.  
+     - `InstallerFactory` → crear instancias correctas según manager.  
+   - **Pruebas de Integración**:
+     - Test completo de `HandleCacheRequest` en modo “hit” y “miss”.  
+     - Verificar que los artefactos en `cache/objects` e `indices` existan y contengan metadatos correctos.  
+   - **Pruebas Funcionales**:
+     - `cli_client` envía petición a un servidor real (puede ser instancia local de FastAPI) y verifica comportamiento en entorno “hit” y “miss”.  
+   - **Pruebas End-to-End**:
+     - Desplegar servidor en Docker, usar cliente en otro contenedor o máquina, verificar ZIP final y extracción de dependencias.  
 
 ### 2.2 Requisitos No Funcionales (RNF)
 
 1. **RNF1 (Eficiencia)**:  
-   - El cálculo de hash debe ser rápido, usando streaming si los ficheros son grandes.  
-   - El servidor debe manejar concurrencia (por ejemplo, con servidor ASGI como Uvicorn/Starlette o Flask + Gunicorn).  
+   - Uso de hashing en streaming (`HASH_BLOCK_SIZE = 8192`).  
+   - Caching de índices separados para evitar recalcular lista de archivos en cada petición.  
 
 2. **RNF2 (Escalabilidad)**:  
-   - Permitir múltiples procesos de generación de dependencias simultáneamente.  
-   - Pensar en uso futuro de almacenamiento distribuido (p. ej. S3) para cachear objetos gigantes.  
+   - Concurrencia segura con locks por hash.  
+   - Fácilmente reemplazable `FileSystemCacheRepository` por almacenamiento distribuido (S3).  
 
 3. **RNF3 (Extensibilidad)**:  
-   - Añadir nuevos gestores de dependencias sin modificar la lógica central, usando patrones de diseño (Factory Method o Strategy).  
+   - Patrón Factory/Strategy para nuevos managers.  
+   - Documentación clara en `README.md` sobre cómo agregar un nuevo `DependencyInstaller`.  
 
 4. **RNF4 (Seguridad)**:  
-   - Validar inputs y sanitizar nombres de archivos.  
-   - Evitar inyecciones (por ejemplo, en el nombre del gestor o rutas).  
-   - Validar firma de API keys de forma segura (comparadores constantes).  
+   - Saneamiento de inputs (`manager`, nombres de archivos).  
+   - `--ignore-scripts` y `--no-scripts` para evitar ejecución de código malicioso.  
 
 5. **RNF5 (Portabilidad)**:  
-   - Funcionar en Linux y macOS (entornos comunes de CI).  
-   - Evitar dependencias nativas muy específicas.  
+   - Funciona en Linux/macOS.  
+   - Requiere Docker si `--use-docker-on-version-mismatch=true` y no se dispone de una versión local soportada.  
 
 6. **RNF6 (Mantenibilidad)**:  
-   - Seguir convenciones PEP8, documentación con docstrings y tipo de anotaciones (type hints).  
-   - Pruebas unitarias y de integración (pytest).  
+   - PEP8, type hints, docstrings.  
+   - Pruebas automatizadas en `pytest`.  
 
 7. **RNF7 (Disponibilidad)**:  
-   - El servidor no soportará HTTPS directamente, se asume que estará detrás de un proxy inverso (Nginx, Traefik) que provea TLS.  
+   - Sin HTTPS nativo; usar proxy inverso para TLS.  
 
 ---
 
 ## 3. Visión General de la Arquitectura (DDD + SOLID)
 
-Enfoque DDD:  
-- **Capa de Dominio** (`domain/`):  
-  - Entidades principales:  
-    - `DependencySet` (representa combinación de ficheros + manager + versiones + hash).  
-    - `CacheObject` (representa la carpeta cacheada con su metadato `<hash>.<manager>.hash`).  
-  - Agregados:  
-    - `CacheRepository` (interfaz para persistencia de objetos cacheados).  
-  - Servicios de Dominio:  
-    - `HashCalculator` (lógica para combinar ficheros y generar hash).  
+### 3.1 Capas y Paquetes
 
-- **Capa de Aplicación** (`application/`):  
-  - Casos de uso (Use Cases / Interactors):  
-    - `HandleCacheRequest` (flujo principal: recibir request, validar, orquestar cálculo/almacenamiento o recuperación de cache).  
-    - `GenerateDependencies` (invoca al gestor con versiones específicas).  
-    - `CompressCacheObject` (genera ZIP y construye URL).  
-    - `ValidateApiKey` (gestiona autorización).  
-    - `ListSupportedManagers` (opcional).  
-  - DTOs (Data Transfer Objects):  
-    - `CacheRequestDTO` (fields: manager, archivos, versiones, api_key).  
-    - `CacheResponseDTO` (fields: download_url, cache_hit: bool).  
+````
 
-- **Capa de Infraestructura** (`infrastructure/`):  
-  - Implementaciones concretas:  
-    - `FileSystemCacheRepository` (persistencia local en `cache/objects`).  
-    - `PostgreSQLCacheRepository` (opcional, para metadata extendido).  
-    - `SubprocessDependencyInstaller` (ejecución de `npm`, `composer`, etc.).  
-    - `HTTPServer` (ASGI con FastAPI/Starlette o Flask).  
-  - Adaptadores / Gateways:  
-    - `LocalLogger` (escribe logs en disco o stdout).  
+dep\_cache\_proxy/
+├── client/
+│   ├── cli.py
+│   ├── hash\_calculator.py
+│   ├── http\_client.py
+│   └── downloader.py
+├── server/
+│   ├── domain/
+│   │   ├── dependency\_set.py
+│   │   ├── cache\_object.py
+│   │   ├── cache\_repository.py
+│   │   ├── hash\_constants.py
+│   │   ├── installer.py
+│   │   └── zip\_util.py
+│   ├── application/
+│   │   ├── dtos.py
+│   │   └── handle\_cache\_request.py
+│   ├── infrastructure/
+│   │   ├── file\_system\_cache\_repository.py
+│   │   ├── api\_key\_validator.py
+│   │   └── docker\_utils.py
+│   └── interfaces/
+│       └── main.py
+├── cache/
+│   ├── objects/
+│   │   └── ... (estructura de hashes)
+│   └── indices/
+│       └── ... (índices de hash con versiones)
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── functional/
+│   └── e2e/
+└── README.md
 
-- **Capa de Interfaces / Entrypoints** (`interfaces/`):  
-  - `main.py` para iniciar el servidor HTTP (`dep_cache_proxy_server`).  
-  - `cli_client.py` para el cliente (`dep_cache_proxy_client`).  
-  - Controllers (en arquitectura MVC):  
-    - `CacheController` (mapea request HTTP a `CacheRequestDTO`, llama a caso de uso y retorna respuesta HTTP).  
+````
 
-- **Aplicación CLI** (`cli/`):  
-  - `ClientCLI` (maneja argumentos con `argparse` o `click`, formatea request, deserializa respuesta).  
+- `hash_constants.py`: define constantes de hashing:
+  ```python
+  HASH_ALGORITHM = "sha256"
+  HASH_BLOCK_SIZE = 8192
+````
 
-### Principios SOLID aplicados (ejemplos)
+* `installer.py`: interfaz y clases concretas (NpmInstaller, ComposerInstaller) que pueden ejecutar localmente o usar Docker según configuración.
 
-1. **S (Single Responsibility Principle)**  
-   - `HashCalculator`: única responsabilidad → calcular hash.  
-   - `FileSystemCacheRepository`: única responsabilidad → almacenar/recuperar datos en el sistema de archivos.  
-   - `CacheController`: única responsabilidad → recibir HTTP, validar inputs mínimos, invocar caso de uso.  
+### 3.2 Principios SOLID
 
-2. **O (Open/Closed Principle)**  
-   - Añadir nuevo gestor de dependencias sin modificar `HandleCacheRequest`. Sino, implementar clase nueva que extienda `DependencyInstaller` y configurarla en una `ManagerFactory`.  
+1. **S (Single Responsibility)**
 
-3. **L (Liskov Substitution Principle)**  
-   - Pueden crearse subclases de `CacheRepository` (p. ej. `FileSystemCacheRepository`, `S3CacheRepository`) que cumplan la misma interfaz sin romper clientes.  
+   * `HashCalculator`: solo calcula hash.
+   * `FileSystemCacheRepository`: solo maneja disco.
+   * `ApiKeyValidator`: solo valida claves.
 
-4. **I (Interface Segregation Principle)**  
-   - Separar interfaces de `DependencyInstaller` (solo métodos de instalación), de `CacheRepository` (solo métodos de CRUD en cache).  
+2. **O (Open/Closed)**
 
-5. **D (Dependency Inversion Principle)**  
-   - El caso de uso `HandleCacheRequest` no depende de implementaciones concretas, sino de interfaces/prefijos de abstracción (`ICacheRepository`, `IDependencyInstaller`).  
+   * Para agregar un nuevo manager, crear subclase de `DependencyInstaller` sin cambiar clases existentes.
+
+3. **L (Liskov Substitution)**
+
+   * Subclases de `ICacheRepository` pueden sustituir a la versión de sistema de archivos sin romper lógica.
+
+4. **I (Interface Segregation)**
+
+   * Separar interfaces: `IDependencyInstaller` para instalación, `ICacheRepository` para persistencia.
+
+5. **D (Dependency Inversion)**
+
+   * Casos de uso (`HandleCacheRequest`) dependen de abstracciones (`ICacheRepository`, `IDependencyInstaller`), no de implementaciones concretas.
 
 ---
 
@@ -317,428 +298,561 @@ Enfoque DDD:
 
 ### 4.1 Cliente (`dep_cache_proxy_client`)
 
-- **Objetivo**: Leer archivos locales de proyecto, calcular hash, hacer petición al servidor y, en caso de respuesta con URL de ZIP, descargarlo y descomprimirlo en la carpeta de dependencias local.
+#### 4.1.1 Objetivos
 
-- **Responsabilidades (SRP)**:  
-  1. Parsear argumentos CLI.  
-  2. Leer contenido de ficheros especificados.  
-  3. Calcular hash local de `DependencySet`.  
-  4. Construir y enviar petición HTTP al servidor.  
-  5. Recibir response: URL o error.  
-  6. Si procede, descargar ZIP y descomprimir en ruta correspondiente.  
-  7. Manejar errores de red, reintentos configurables.  
+* Leer archivos locales de dependencias.
+* Calcular hash localmente (usando constantes).
+* Enviar petición JSON al servidor.
+* Descarga y extracción del ZIP.
 
-- **Dependencias externas**:  
-  - Librerías HTTP (ej. `requests`).  
-  - Librerías de compresión (`zipfile`).  
+#### 4.1.2 Módulos
 
-- **Módulos propuestos**:  
-  - `client/cli.py`  
-  - `client/hash_calculator.py`  
-  - `client/http_client.py`  
-  - `client/downloader.py`  
+* **`client/cli.py`**: parseo de argumentos y flujo principal.
+* **`client/hash_calculator.py`**: lógica de hashing.
+* **`client/http_client.py`**: construcción de petición HTTP y manejo de respuestas.
+* **`client/downloader.py`**: descarga y extracción del ZIP.
 
-- **Ejemplo de Invocación**:  
-  ```bash
-  # Con gestor npm
-  dep_cache_proxy_client https://mi.servidor/api npm --apikey=ABCD1234 --files=package.json,package.lock --node-version=14.20.0 --npm-version=6.14.13
+#### 4.1.3 Argumentos CLI
 
-  # Con gestor composer y servidor público
-  dep_cache_proxy_client http://localhost:8080 composer --files=composer.json,composer.lock
-````
+```bash
+dep_cache_proxy_client <endpoint_url> <manager> \
+  --apikey=<APIKEY> \
+  --files=<file1>,<file2> \
+  [--node-version=<VERSION>] [--npm-version=<VERSION>] \
+  [--php-version=<VERSION>] \
+  [--timeout=<segundos>]
+```
 
-#### 4.1.1 Parámetros CLI y Validaciones
+* `<endpoint_url>`: URL base del servidor (`http://host:port/api`).
+* `<manager>`: identificador (`npm`, `composer`, etc.).
+* Flags:
 
-* **Posicionales**:
+  * `--apikey` (opcional si servidor es público; en otro caso, obligatorio).
+  * `--files` (obligatorio; lista separada por comas).
+  * `--node-version`, `--npm-version` (opcionales, relevantes solo para `npm`).
+  * `--php-version` (opcional, relevante solo para `composer`).
+  * `--timeout` (por defecto 60 segundos).
 
-  1. `<endpoint_url>`: URL base del servidor (p. ej. `http://localhost:8080/api`)
-  2. `<manager>`: identificador de gestor (`npm`, `composer`, o aquellos que se admitan).
+#### 4.1.4 Flujo Cliente (resumido)
 
-* **Flags**:
+1. Parsear argumentos y validar archivos.
+2. Construir diccionario `versions` según manager.
+3. Calcular hash local con `HashCalculator` (incluye versiones en hash).
+4. Leer cada fichero en binario, codificar en Base64.
+5. Construir JSON:
 
-  * `--apikey=<APIKEY>` (opcional si el servidor es público; en caso contrario, obligatorio).
-  * `--files=<file1>,<file2>[,...]` (*string listado*) - obligatorio con al menos dos ficheros (definición + lock).
-  * `--node-version=<VERSION>` y `--npm-version=<VERSION>` (solo cuando `manager == "npm"`).
-  * `--php-version=<VERSION>` (solo cuando `manager == "composer"`).
-  * `--timeout=<segundos>` (opcional, por defecto 60s) para peticiones HTTP.
+   ```jsonc
+   {
+     "manager": "npm",
+     "hash": "abcdef1234...",
+     "files": {
+       "package.json": "<base64>",
+       "package.lock": "<base64>"
+     },
+     "versions": {
+       "node": "14.20.0",
+       "npm": "6.14.13"
+     }
+   }
+   ```
+6. Enviar `POST <endpoint_url>/v1/cache` con cabecera `Authorization: Bearer <APIKEY>`.
+7. Si `200 OK`, parsear `download_url` y `cache_hit`.
+8. Descargar ZIP y extraer en carpeta (`node_modules` o `vendor`).
 
-* **Errores posibles**:
-
-  * Faltan ficheros o no existen en el disco local → abortar con mensaje de error.
-  * `manager` no válido / no soportado → abortar.
-  * Sin clave API cuando el servidor la requiere → abortar.
-
-* **Salida esperada**:
-
-  * Mensaje en consola indicando si fue "cache hit" o "cache miss + generación".
-  * URL de descarga del ZIP.
-  * Progreso de descarga y extracción.
-  * Código de salida 0 en caso de éxito, ≠0 en errores.
+---
 
 ### 4.2 Servidor (`dep_cache_proxy_server`)
 
-* **Objetivo**: Recibir solicitudes de cache, decidir si existe cache o hay que generarla, y servir el ZIP resultante.
+#### 4.2.1 Objetivos
 
-* **Responsabilidades**:
+* Recibir peticiones de cache y devolver URL de descarga.
+* Validar API key (si aplica).
+* Verificar versiones solicitadas contra versiones soportadas.
+* En caso de desajuste de versión:
 
-  1. Parsear argumentos de arranque: `port`, `--cache_dir`, `--is_public`, `--api-keys`.
-  2. Inicializar repositorios (p. ej. `FileSystemCacheRepository(cache_dir)`).
-  3. Configurar router HTTP (FastAPI/Flask) con endpoints:
+  * **Error** o
+  * **Generar dependencias con Docker** (si se configura).
+* Gestionar cache en disco: `cache/objects/`, `cache/indices/`.
 
-     * `POST /v1/cache` → recibe JSON/multipart y devuelve JSON con URL de descarga.
-     * `GET /download/<hash>.zip` → entrega el ZIP.
-  4. Validar API key en cada request si `--is_public == False`.
-  5. Validador de `manager`.
-  6. Orquestar los casos de uso de cache (hit/miss).
-  7. Registrar logs y métricas (opcionalmente).
+#### 4.2.2 Módulos
 
-* **Dependencias externas**:
+* **`server/domain/hash_constants.py`**
 
-  * `fastapi` + `uvicorn` (o `Flask` + `gunicorn`).
-  * `hashlib`, `tempfile`, `subprocess`, `zipfile`, `os`, `shutil`.
+  ```python
+  HASH_ALGORITHM = "sha256"
+  HASH_BLOCK_SIZE = 8192
+  ```
+* **`server/domain/dependency_set.py`**: define la entidad `DependencySet` y cálculo de hash.
+* **`server/domain/cache_object.py`**: define `CacheObject` y paths en disco.
+* **`server/domain/cache_repository.py`**: interfaz `ICacheRepository`.
+* **`server/domain/installer.py`**: interfaz `DependencyInstaller` + implementaciones (NpmInstaller, ComposerInstaller).
+* **`server/domain/zip_util.py`**: utilidades para listado de archivos, checksums, compresión.
+* **`server/infrastructure/file_system_cache_repository.py`**: implementación de `ICacheRepository`.
+* **`server/infrastructure/api_key_validator.py`**: validador de API keys.
+* **`server/infrastructure/docker_utils.py`**: funciones auxiliares para ejecutar comandos Docker.
+* **`server/application/dtos.py`**: define `CacheRequestDTO` y `CacheResponseDTO`.
+* **`server/application/handle_cache_request.py`**: orquesta la lógica de hit/miss, generación y persistencia.
+* **`server/interfaces/main.py`**: define FastAPI, parseo de argumentos de servidor y arranque de Uvicorn.
 
-* **Módulos propuestos**:
+#### 4.2.3 Argumentos CLI Servidor
 
-  * `server/main.py`
-  * `server/controllers/cache_controller.py`
-  * `server/application/usecases/handle_cache_request.py`
-  * `server/domain/hash_calculator.py`
-  * `server/infrastructure/file_system_cache_repository.py`
-  * `server/infrastructure/dependency_installer.py`
-  * `server/infrastructure/zip_util.py`
-  * `server/infrastructure/api_key_validator.py`
+```bash
+dep_cache_proxy_server <port> \
+  --cache_dir=<CACHE_DIR> \
+  --supported-versions-node=<NODE_VER1>:<NPM_VER1>,<NODE_VER2>:<NPM_VER2>,... \
+  --supported-versions-php=<PHP_VER1>,<PHP_VER2>,... \
+  [--use-docker-on-version-mismatch] \
+  [--is_public] \
+  [--api-keys=<KEY1>,<KEY2>,...]
+```
 
-#### 4.2.1 Parámetros CLI y Validaciones
+* `<port>`: entero (ej. `8080`).
+* `--cache_dir`: carpeta base de cache (ej. `./cache`).
+* `--supported-versions-node`: lista separada por comas de pares `node_version:npm_version`. Ej: `14.20.0:6.14.13,16.15.0:8.5.0`.
+* `--supported-versions-php`: lista separada por comas de versiones `php`. Ej: `8.1.0,7.4.0`.
+* `--use-docker-on-version-mismatch`: si se pasa, el servidor usará Docker para generar dependencias cuando la versión solicitada no esté en la lista soportada.
+* `--is_public`: si está presente, el servidor no valida API key.
+* `--api-keys`: lista separada por comas de claves válidas (obligatorio si `--is_public=false`).
 
-* **Posicional**:
+#### 4.2.4 Flujo Servidor (resumido)
 
-  1. `<port>` (entero, p. ej. `8080`).
-* **Flags**:
+1. Parsear argumentos y validar `cache_dir` (crearlo si no existe).
+2. Leer `supported_versions_node` y `supported_versions_php` en memoria (diccionarios o sets).
+3. Inicializar `FileSystemCacheRepository(cache_dir)`.
+4. Inicializar `ApiKeyValidator(api_keys)` si `is_public=false`.
+5. Crear FastAPI con:
 
-  * `--cache_dir=<CACHE_DIR>` (ruta absoluta o relativa, p. ej. `./cache`).
-  * `--is_public` (booleano, default `False`).
-  * `--api-keys=<KEY1>,<KEY2>,...` (string separada por comas, opcional si `--is_public` es `True`).
-* **Errores posibles**:
+   * `POST /v1/cache` → `cache_endpoint()`.
+   * `GET /download/{hash}.zip` → `download_endpoint()`.
+6. En `cache_endpoint()`:
 
-  * `port` no válido (no integer dentro de rango 1–65535).
-  * `cache_dir` no accesible o no escribible.
-  * `--api-keys` ausente cuando `--is_public` es `False`.
+   1. Validar API key (si aplica).
+   2. Parsear JSON y crear `CacheRequestDTO`.
+   3. Verificar `dto.manager` en `["npm","composer"]` (o lista dinámica de managers).
+   4. Verificar versiones solicitadas:
+
+      * Para `npm`: `(node_version, npm_version)` en `supported_versions_node`.
+      * Para `composer`: `php_version` en `supported_versions_php`.
+      * Si no está soportada:
+
+        * Si `--use-docker-on-version-mismatch=false`:
+
+          * Retornar `400 Bad Request`: “Versión no soportada”.
+        * Si `--use-docker-on-version-mismatch=true`:
+
+          * Marcar `use_docker = True` en DTO (o en el manejador).
+   5. Llamar a `handler.execute(dto, base_download_url, use_docker)`.
+   6. Devolver JSON con `download_url` y `cache_hit`.
+7. En `download_endpoint(hash)`:
+
+   * Buscar en `cache/objects/<h0h1>/<h2h3>/<hash>.<manager>/<hash>.zip`.
+   * Si existe, retornar `FileResponse`.
+   * Si no, `404 Not Found`.
 
 ---
 
 ## 5. Modelo de Dominio y Hashing
 
-### 5.1 Entidad: `DependencySet`
+### 5.1 Constantes de Hash (`hash_constants.py`)
 
-* Atributos:
+```python
+# server/domain/hash_constants.py
 
-  * `manager: str`
-  * `file_contents: Dict[str, bytes]` → clave: nombre de archivo (ej. `"package.json"`), valor: contenido en bytes.
-  * `versions: Dict[str, str]` → opcional, p. ej. `{ "node": "14.17.0", "npm": "6.14.13" }`.
-  * `hash: str` (SHA256 hexa resultante).
+HASH_ALGORITHM = "sha256"
+HASH_BLOCK_SIZE = 8192
+```
 
-* **Método principal**:
+### 5.2 Entidad: `DependencySet` (`dependency_set.py`)
 
-  * `calculate_hash() -> str`:
+```python
+# server/domain/dependency_set.py
+import hashlib
+from pathlib import Path
+from typing import Dict
 
-    1. Ordenar nombres de archivo de forma determinista (alfabéticamente).
-    2. Concatenar: `manager + "\n"` → para diferenciar `npm` vs `composer`.
-    3. Para cada nombre de archivo en orden:
+from .hash_constants import HASH_ALGORITHM, HASH_BLOCK_SIZE
 
-       * Tomar su contenido (bytes) y hacer streaming a `hashlib.sha256`.
-    4. Para cada par (key, value) dentro de `versions` (ordenar por clave):
+class DependencySet:
+    """
+    Representa:
+      - manager: "npm" o "composer"
+      - file_contents: {"package.json": b"...", "package.lock": b"..."}
+      - versions: {"node": "14.20.0", "npm": "6.14.13"} para npm,
+                  {"php": "8.1.0"} para composer.
+    Calcula un hash SHA256 incluyendo manager, versiones y contenido de ficheros.
+    """
+    def __init__(self, manager: str, file_contents: Dict[str, bytes], versions: Dict[str, str]):
+        self.manager = manager
+        self.file_contents = file_contents
+        self.versions = versions
+        self.hash = self.calculate_hash()
 
-       * Concatenar `"key=value\n"`.
-       * Alimentar bytes a `hashlib.sha256`.
-    5. Devolver hex digest de 64 caracteres.
+    def calculate_hash(self) -> str:
+        sha = hashlib.new(HASH_ALGORITHM)
+        # Incluir manager
+        sha.update(self.manager.encode("utf-8"))
+        sha.update(b"\n")
+        # Incluir cada archivo en orden alfabético
+        for name in sorted(self.file_contents.keys()):
+            content = self.file_contents[name]
+            # Alimentar por bloques
+            idx = 0
+            while idx < len(content):
+                chunk = content[idx: idx + HASH_BLOCK_SIZE]
+                sha.update(chunk)
+                idx += HASH_BLOCK_SIZE
+        # Incluir versiones, ordenadas por clave
+        for key in sorted(self.versions.keys()):
+            val = self.versions[key]
+            line = f"{key}={val}\n".encode("utf-8")
+            sha.update(line)
+        return sha.hexdigest()
+```
 
-* **Justificación**:
+* **Notas**:
 
-  * Al incluir `manager` en hash, evitamos colisiones entre diferentes ecosistemas.
-  * Incluir `versions` opcionales asegura que cambiar de versión cause nuevo hash y, por ende, regeneración de dependencias.
+  * El algoritmo está en `HASH_ALGORITHM`.
+  * El tamaño de bloque en `HASH_BLOCK_SIZE`.
+  * El hash resultante incluye manager y versiones, por lo que variaciones de versión producen hash distinto.
 
-### 5.2 Entidad: `CacheObject`
+### 5.3 Entidad: `CacheObject` (`cache_object.py`)
 
-* Atributos:
+```python
+# server/domain/cache_object.py
+from pathlib import Path
 
-  * `hash: str`
-  * `manager: str`
-  * `cache_path: Path` → carpeta raíz en disco donde reside la cache:
+class CacheObject:
+    """
+    Representa la cache de una combinación específica:
+      - hash: hex string
+      - manager: "npm" o "composer"
+      - manager_version: para npm, "<node_version>_<npm_version>"; para composer, "<php_version>"
+    Define rutas para:
+      - output_folder (node_modules/ o vendor/)
+      - meta_index_file: <hash>.<manager>.<manager_version>.index
+      - zip_file: <hash>.zip
+    """
+    def __init__(self, base_dir: Path, hash_hex: str, manager: str, manager_version: str):
+        self.hash = hash_hex
+        self.manager = manager
+        self.manager_version = manager_version  # ej. "14.20.0_6.14.13" o "8.1.0"
+        h0_2 = hash_hex[0:2]
+        h2_4 = hash_hex[2:4]
+        # Ruta final de este cache object:
+        self.cache_root = base_dir / "objects" / h0_2 / h2_4 / f"{hash_hex}.{manager}"
+        # Carpeta interna con dependencias:
+        self.output_folder_name = "node_modules" if manager == "npm" else "vendor"
+        self.output_folder = self.cache_root / self.output_folder_name
+        # Archivo de índice de hash (metadata)
+        self.meta_index_file = self.cache_root / f"{hash_hex}.{manager}.{manager_version}.index"
+        # Archivo ZIP
+        self.zip_file = self.cache_root / f"{hash_hex}.zip"
 
-    ```
-    cache_dir/objects/<h0h1>/<h2h3>/<hash>.<manager>/
-    ```
-  * `meta_file: Path` → `cache_path / "<hash>.<manager>.hash"`.
-  * `zip_file: Path` → `cache_path / "<hash>.zip"`.
+    def exists(self) -> bool:
+        return (
+            self.cache_root.is_dir()
+            and self.meta_index_file.is_file()
+            and self.zip_file.is_file()
+        )
+```
 
-* **Métodos**:
+### 5.4 Entidad/Interfaz: `ICacheRepository` (`cache_repository.py`)
 
-  * `exists() -> bool`: verifica si `cache_path` existe y contiene `meta_file` y `zip_file`.
-  * `write_metadata(file_list: List[str])`: genera el archivo `<hash>.<manager>.hash` con líneas:
+```python
+# server/domain/cache_repository.py
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Optional
 
-    ```
-    <relative_path>;<filesize>;<checksum (opcional)>
-    ```
-  * `compress_all()`: genera el ZIP de la carpeta interna completa (`node_modules` o `vendor`).
+from .cache_object import CacheObject
 
-### 5.3 Entidad/Agregado: `CacheRepository` (Interfaz)
+class ICacheRepository(ABC):
+    @abstractmethod
+    def get(self, cache_key: str, manager_version: str) -> Optional[CacheObject]:
+        """
+        Retorna CacheObject si existe, o None en otro caso.
+        cache_key: "<hash>.<manager>"
+        manager_version: versión combinada (ej. "14.20.0_6.14.13")
+        """
+        pass
 
-* **Métodos** (contrato):
+    @abstractmethod
+    def save(self, cache_obj: CacheObject) -> None:
+        """
+        Persiste en disco el CacheObject (asume que los archivos ya están
+        en disco en las rutas apropiadas).
+        """
+        pass
 
-  1. `get(cache_key: str) -> Optional[CacheObject]`: retorna `CacheObject` si existe, o `None` si no.
-  2. `save(cache_object: CacheObject) -> None`: guarda el objeto en disco (crea carpetas, escribe metadatos).
-  3. `list_all() -> List[CacheObject]` (opcional, para limpieza/monitorización).
-  4. `delete(cache_key: str) -> None` (opcional, para invalidación).
-
-* **Implementación principal**:
-
-  * `FileSystemCacheRepository(cache_dir: Path)`:
-
-    * `get(...)`: comprueba existencia de `cache_dir / "objects" / subdirs / "<hash>.<manager>"`.
-    * `save(...)`: crea las carpetas necesarias y mueve archivos.
-    * `delete(...)`: borra carpeta entera asociada.
-
-### 5.4 Dominio: `HashCalculator`
-
-* Única responsabilidad: tomar `DependencySet` y devolver `hash: str`.
+    @abstractmethod
+    def compute_path(self, cache_key: str) -> Path:
+        """
+        Dado cache_key, retorna la ruta absoluta donde debería residir.
+        """
+        pass
+```
 
 ---
 
 ## 6. Estructura de Directorios en Cache
 
-Se utiliza una **estructura de directorios basada en los dos primeros bytes del hash** para evitar tener demasiados ficheros en un solo directorio. Ejemplo de árbol:
+El servidor mantendrá dos carpetas principales bajo `cache_dir`:
 
 ```
 <cache_dir>/
-└── objects/
-    ├── 00/00/   # hashes que empiezan con "0000..."
-    ├── 00/01/
-    ├── ...
-    ├── ab/cd/   # hashes que empiezan con "abcd..."
-    │   └── <hash>.npm/
-    │       ├── node_modules/...
-    │       ├── <hash>.npm.hash
-    │       └── <hash>.zip
-    ├── ef/01/
-    └── ... (256 x 256 posibles combinaciones: "00" a "ff" / "00" a "ff")
+├── objects/
+│   ├── 00/00/
+│   │   ├── <hash>.npm/
+│   │   │   ├── node_modules/...
+│   │   │   ├── <hash>.npm.<manager_version>.index
+│   │   │   └── <hash>.zip
+│   │   └── <hash2>.composer/
+│   │       ├── vendor/...
+│   │       ├── <hash2>.composer.<manager_version>.index
+│   │       └── <hash2>.zip
+│   ├── 00/01/
+│   └── ...
+├── indices/
+│   ├── <hash>.npm.<manager_version>.index
+│   └── <hash2>.composer.<manager_version>.index
+└── logs/  (opcional, para registros de operación)
 ```
 
-* **Convención de nombres**
+* **`objects/`**:
 
-  * Directorio de nivel 1: los dos primeros caracteres hexadecimales del hash (`h[0:2]`).
-  * Directorio de nivel 2: los siguientes dos caracteres (`h[2:4]`).
-  * Nombre de carpeta final: `"<hash>.<manager>"`.
+  * Guarda los archivos reales de `node_modules` y `vendor`.
+  * Cada carpeta `<hash>.<manager>` incluye:
 
-* **Contenido de carpeta `<hash>.<manager>`**:
+    * Subcarpeta con dependencias (`node_modules/` o `vendor/`).
+    * Indice de hash de archivos: `<hash>.<manager>.<manager_version>.index`.
+    * ZIP: `<hash>.zip`.
 
-  * Subcarpeta `node_modules/` o `vendor/` (dependiendo de `manager`).
-  * Archivo de metadatos: `<hash>.<manager>.hash`.
-  * Archivo comprimido: `<hash>.zip`.
+* **`indices/`**:
 
-* **Archivo de metadatos** (`<hash>.<manager>.hash`)
+  * Duplicado centralizado de todos los índices de hash, para poder listarlos sin recorrer `objects/`.
+  * Cada índice lleva en su nombre la versión del manager.
 
-  * Formato de cada línea (separadas por `\n`):
+### 6.1 Nombre de Índices de Hash
 
-    ```
-    <ruta_relativa>;<tamaño_bytes>;<sha256_hex>
-    ```
+* Para NPM:
 
-    * Ejemplo:
+  ```
+  <hash>.npm.<node_version>_<npm_version>.index
+  ```
 
-      ```
-      node_modules/packageA/index.js;12034;ff3a2b...
-      node_modules/packageB/lib/util.js;4531;9ac8d1...
-      ```
+  Ejemplo: `ab12cd34.npm.14.20.0_6.14.13.index`
 
-Con esta información, el servidor puede reconstruir el ZIP sin necesidad de leer todos los ficheros si ya están almacenados individuales, o validar la integridad de la cache.
+* Para Composer:
+
+  ```
+  <hash>.composer.<php_version>.index
+  ```
+
+  Ejemplo: `aa11bb22.composer.8.1.0.index`
+
+Los índices contienen líneas con formato:
+
+```
+<ruta_relativa>;<tamaño_bytes>;<sha256_hex>
+```
+
+Ejemplo:
+
+```
+node_modules/packageA/index.js;12034;ff3a2b...
+node_modules/packageB/lib/util.js;4531;9ac8d1...
+```
 
 ---
 
 ## 7. Flujo de Trabajo Completo
 
-A continuación se describe cada paso del flujo general, desde que el usuario invoca el cliente hasta que se obtienen las dependencias locales:
+A continuación, el flujo actualizado incorporando la lógica de versiones y Docker:
 
-1. **Inicio Cliente**
+1. **Cliente**
 
+   ```bash
+   dep_cache_proxy_client https://servidor:8080/api npm \
+       --apikey=MI_API_KEY \
+       --files=package.json,package.lock \
+       --node-version=14.20.0 \
+       --npm-version=6.14.13
    ```
-   $ dep_cache_proxy_client https://server:8080/api npm --apikey=KEY123 --files=package.json,package.lock --node-version=14.20.0 --npm-version=6.14.13
-   ```
 
-   * El cliente parsea argumentos y verifica que los ficheros `package.json` y `package.lock` existen.
-   * Lee ambos archivos en modo binario (bytes).
-   * Instancia un objeto `DependencySet(manager="npm")` y lo alimenta con esos contenidos y versiones opcionales.
-   * Llama a `HashCalculator.calculate_hash(dependency_set)` → obtiene `hex_hash` (por ejemplo: `ab12cd34ef56...`).
-   * Construye un JSON de petición:
+   * El cliente lee `package.json` y `package.lock`.
+   * Construye `versions = {"node": "14.20.0", "npm": "6.14.13"}`.
+   * Crea `DependencySet(manager="npm", file_contents, versions)`.
+   * `hash_local = dependency_set.calculate_hash()`.
+   * Codifica ficheros en Base64 y arma payload JSON.
+   * Envía `POST https://servidor:8080/api/v1/cache` con:
 
-     ```jsonc
-     {
-       "manager": "npm",
-       "hash": "ab12cd34ef56...",
-       "files": {
-         "package.json": "<base64_contenido>",
-         "package.lock": "<base64_contenido>"
-       },
-       "versions": {
-         "node": "14.20.0",
-         "npm": "6.14.13"
+     * Headers: `Authorization: Bearer MI_API_KEY`.
+     * JSON:
+
+       ```jsonc
+       {
+         "manager": "npm",
+         "hash": "ab12cd34...",
+         "files": {
+           "package.json": "<base64>",
+           "package.lock": "<base64>"
+         },
+         "versions": {
+           "node": "14.20.0",
+           "npm": "6.14.13"
+         }
        }
-     }
-     ```
-   * Envía `POST https://server:8080/api/v1/cache` con cabecera `Authorization: Bearer KEY123` y el JSON anterior.
+       ```
+   * Espera respuesta.
 
-2. **Recepción en Servidor**
+2. **Servidor: `POST /v1/cache`**
 
-   * FastAPI (o Flask) mapea `POST /v1/cache` al método `CacheController.handle_request()`.
-   * Extrae JWT de cabecera o `Authorization: Bearer`.
-   * Si `is_public == False`, invoca `ValidateApiKey.check(api_key)` (compara con la lista interna).
+   * FastAPI recibe la request y ejecuta `cache_endpoint(request)`.
+   * **Validar API Key** (si `--is_public=false`):
 
-     * Si falla, responde `401 Unauthorized`.
-   * Extrae campos `manager`, `hash`, `files`, `versions` del JSON.
-   * Valida que `manager` está soportado (p. ej., `if manager not in ["npm","composer"] → 400`).
-   * Llama a `HandleCacheRequest.execute(request_dto)`, donde `request_dto.manager == "npm"`, `request_dto.hash == "ab12..."`, etc.
+     * Obtener header `Authorization`, extraer clave y verificar con `ApiKeyValidator`.
+     * Si inválida → `HTTP 401 Unauthorized`.
+   * Parsear JSON en `CacheRequestDTO`.
+   * **Validar Manager**:
 
-3. **Caso de Uso: `HandleCacheRequest`**
+     * Si `dto.manager` no está en lista (p.ej., `["npm","composer"]`), → `HTTP 400 Bad Request`.
+   * **Validar Versiones**:
 
-   ```python
-   class HandleCacheRequest:
-       def __init__(self, cache_repo: ICacheRepository, installer_factory: InstallerFactory, zip_util: ZipUtil):
-           self.cache_repo = cache_repo
-           self.installer_factory = installer_factory
-           self.zip_util = zip_util
+     * Para `npm`: formar tupla `(node_version, npm_version)` de `dto.versions`.
 
-       def execute(self, request: CacheRequestDTO) -> CacheResponseDTO:
-           cache_key = f"{request.hash}.{request.manager}"
-           cache_obj = self.cache_repo.get(cache_key)
-           if cache_obj and cache_obj.exists():
-               # Cache Hit
-               download_url = build_download_url(request.hash, request.manager)
-               return CacheResponseDTO(download_url=download_url, cache_hit=True)
-           else:
-               # Cache Miss → Generar dependencias
-               temp_dir = create_temp_dir(prefix=cache_key)
-               # 1) Decodificar archivos base64 y escribir en temp_dir
-               for name, b64_content in request.files.items():
-                   write_file(temp_dir / name, base64_decode(b64_content))
-               # 2) Instalar dependencias
-               installer = self.installer_factory.get_installer(request.manager, request.versions)
-               installer.install(temp_dir)
+       * Si no está en `supported_versions_node`:
 
-               # 3) Copiar carpeta generada (node_modules/vendor) a cache_dir
-               final_cache_dir = self.cache_repo.compute_path(cache_key)
-               copy_tree(temp_dir / installer.output_folder_name, final_cache_dir / installer.output_folder_name)
+         * Si `use_docker_on_version_mismatch == False`:
 
-               # 4) Generar metadatos
-               file_list = list_all_files(final_cache_dir / installer.output_folder_name)
-               checksum_list = compute_checksums(final_cache_dir / installer.output_folder_name)
-               self.zip_util.write_metadata(final_cache_dir, cache_key, request.manager, file_list, checksum_list)
+           * `HTTP 400 Bad Request: "Versión de Node/NPM no soportada"`.
+         * Si `use_docker_on_version_mismatch == True`:
 
-               # 5) Comprimir cache
-               zip_path = final_cache_dir / f"{request.hash}.zip"
-               self.zip_util.compress_folder(final_cache_dir / installer.output_folder_name, zip_path)
+           * Marcar `use_docker = True`.
+     * Para `composer`:
 
-               # 6) Registrar en repo (persistir metadatos)
-               cache_obj = CacheObject(hash=request.hash, manager=request.manager, cache_path=final_cache_dir)
-               self.cache_repo.save(cache_obj)
+       * `php_version = dto.versions["php"]`.
+       * Si no está en `supported_versions_php`:
 
-               download_url = build_download_url(request.hash, request.manager)
-               return CacheResponseDTO(download_url=download_url, cache_hit=False)
-   ```
-
-   * Al finalizar, `HandleCacheRequest.execute()` retorna un `CacheResponseDTO` con el campo `download_url` y un booleano `cache_hit`.
-
-4. **Respuesta al Cliente**
-
-   * `CacheController` envuelve el resultado en JSON, p. ej.:
-
-     ```jsonc
-     {
-       "download_url": "http://server:8080/download/ab12cd34ef56... .zip",
-       "cache_hit": false
-     }
-     ```
-   * El cliente recibe la respuesta:
-
-     * Si `cache_hit == true`, muestra “Cache hit: descargando...”
-     * Si `cache_hit == false`, muestra “Cache miss: generando dependencias. Descargando cuando esté listo...”
-
-5. **Descarga del ZIP**
-
-   * El cliente realiza `GET http://server:8080/download/ab12cd34ef56... .zip` y guarda en disco local, p. ej. `./dep_cache/ab12cd34ef56... .zip`.
-   * Descomprime el ZIP en carpeta local predeterminada de dependencias:
-
-     * Si `manager == "npm"`, extrae contenido comprimido en `./node_modules/`.
-     * Si `manager == "composer"`, extrae en `./vendor/`.
-   * El cliente puede borrar el ZIP temporal o guardarlo en un cache local.
-
-6. **Entrega Final**
-
-   * El cliente termina con la carpeta de dependencias actualizada en disco:
+         * Igual lógica de error vs Docker.
+   * **Calcular `cache_key`**:
 
      ```
-     proyecto/
-     ├── package.json
-     ├── package.lock
-     └── node_modules/  # Proveniente del ZIP descargado
+     cache_key = f"{dto.hash}.{dto.manager}"
+     manager_version = 
+         "14.20.0_6.14.13"  # Para npm
+         o
+         "8.1.0"           # Para composer
      ```
-   * Si se repite el mismo flujo con idéntica combinación de `package.json`+`package.lock` (sin cambios de versión), será un **cache hit** puro y instantáneo, evitando la regeneración del servidor.
+   * `cache_obj = cache_repo.get(cache_key, manager_version)`
 
-7. **Limpieza (opcional)**
+     * Si existe y `cache_obj.exists()` → **Cache Hit**:
 
-   * El servidor podría periódicamente (cronjob o scheduler) invocar un caso de uso `PurgeOldCaches` para eliminar hashes no referenciados o expirados después de N días.
+       * `download_url = f"{base_download_url}/download/{dto.hash}.zip"`.
+       * Responder `200 OK`: `{"download_url": ..., "cache_hit": true}`.
+     * Si no existe → **Cache Miss**:
+
+       1. `temp_dir = mkdtemp(prefix=cache_key)`.
+       2. Escribir ficheros `.json` y `.lock` en `temp_dir`.
+       3. Determinar `use_docker` según validación de versiones.
+       4. `installer = InstallerFactory.get_installer(dto.manager, dto.versions)`
+       5. Si `use_docker == False` → `installer.install(temp_dir)` (local).
+          Si `use_docker == True` → `installer.install_with_docker(temp_dir, dto.versions)`.
+       6. Tras instalación, en `temp_dir` existe `node_modules/` o `vendor/`.
+       7. **Copiar a Cache**:
+
+          * `final_cache_dir = cache_repo.compute_path(cache_key)`
+          * `copytree(temp_dir/<output_folder>, final_cache_dir/<output_folder>)`
+       8. **Generar Índice de Hash de Archivos**:
+
+          * `file_list = ZipUtil.list_all_files(final_cache_dir/<output_folder>)`
+          * `checksums = ZipUtil.compute_checksums(final_cache_dir/<output_folder>)`
+          * `ZipUtil.write_index(final_cache_dir, dto.hash, dto.manager, manager_version, file_list, checksums)`
+
+            * Esto crea en `final_cache_dir`:
+
+              ```
+              <hash>.<manager>.<manager_version>.index
+              ```
+          * Copiar ese index también a `cache_dir/indices/`.
+       9. **Comprimir**:
+
+          * `zip_path = final_cache_dir / f"{dto.hash}.zip"`
+          * `ZipUtil.compress_folder(final_cache_dir/<output_folder>, zip_path)`
+       10. **Persistir en Repo**:
+
+           * `cache_obj = CacheObject(cache_dir, dto.hash, dto.manager, manager_version)`
+           * `cache_repo.save(cache_obj)`
+       11. **Eliminar `temp_dir`**.
+       12. `download_url = f"{base_download_url}/download/{dto.hash}.zip"`
+       13. Responder `200 OK`: `{"download_url": ..., "cache_hit": false}`.
+
+3. **Cliente**
+
+   * Recibe respuesta JSON.
+   * Si `cache_hit == true`:
+
+     * Descarga `GET <download_url>`, extrae ZIP en `./node_modules/` (o `./vendor/`).
+   * Si `cache_hit == false`:
+
+     * Espera a que el servidor termine la generación y responda con URL (en el mismo request).
+     * Descarga y extrae.
+
+4. **Descarga de ZIP**
+
+   * Cliente hace `GET /download/<hash>.zip`.
+   * Servidor en `download_endpoint(hash)`:
+
+     * Busca en `cache/objects/<h0h1>/<h2h3>/<hash>.<manager>/<hash>.zip`.
+     * Si existe, retorna `FileResponse`.
+     * Si no, `404 Not Found`.
 
 ---
 
 ## 8. Detalles de Implementación y Pseudocódigo
 
-A continuación se muestra pseudocódigo orientado a Python, respetando convenciones DDD/SOLID. El objetivo es que otras IA (e.g., Claude) puedan leerlo e implementarlo directamente.
-
 ### 8.1 Pseudocódigo Cliente
 
 ```python
 #!/usr/bin/env python3
+# client/cli.py
+
 import argparse
 import base64
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import zipfile
-import requests   # pip install requests
+import requests
 
-# ----------------------------------------
-# Dominio / Util: HashCalculator (cliente)
-# ----------------------------------------
+# ----------------------------
+# Dominio / Util: HashCalculator
+# ----------------------------
+from .hash_calculator import HASH_ALGORITHM, HASH_BLOCK_SIZE
+
 class HashCalculator:
     @staticmethod
     def calculate_hash(manager: str, file_paths: list[str], versions: dict) -> str:
-        """
-        Calcula SHA256 en función de:
-            1. manager (e.g. "npm")
-            2. contenido de cada fichero (en orden alfabético)
-            3. versiones opcionales (ordenadas por clave)
-        """
-        sha = hashlib.sha256()
+        sha = hashlib.new(HASH_ALGORITHM)
         sha.update(manager.encode("utf-8"))
         sha.update(b"\n")
-        # Leer y procesar cada fichero
         for file_name in sorted(file_paths):
             with open(file_name, "rb") as f:
                 while True:
-                    chunk = f.read(8192)
+                    chunk = f.read(HASH_BLOCK_SIZE)
                     if not chunk:
                         break
                     sha.update(chunk)
-        # Procesar versiones opcionales
         for k in sorted(versions.keys()):
             v = versions[k]
-            line = f"{k}={v}\n".encode("utf-8")
-            sha.update(line)
+            sha.update(f"{k}={v}\n".encode("utf-8"))
         return sha.hexdigest()
 
-# ----------------------------------------
+# ----------------------------
 # Cliente: Main CLI
-# ----------------------------------------
+# ----------------------------
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Cliente CLI de DepCacheProxy"
@@ -761,33 +875,33 @@ def main():
     endpoint = args.endpoint_url.rstrip("/")
     manager = args.manager.lower()
     api_key = args.apikey
-    # Validar manager soportado localmente (sin o con verificación completa en servidor)
+
     supported = ["npm", "composer"]
     if manager not in supported:
         print(f"ERROR: Gestor '{manager}' no soportado. Opciones: {', '.join(supported)}")
         sys.exit(1)
 
-    # Parsear lista de ficheros
     file_list = [f.strip() for f in args.files.split(",")]
     if len(file_list) < 2:
         print("ERROR: Debe especificar al menos dos ficheros: definición + lockfile")
         sys.exit(1)
-    # Verificar existencias
     for fp in file_list:
         if not os.path.isfile(fp):
             print(f"ERROR: Archivo no encontrado: {fp}")
             sys.exit(1)
 
-    # Construir diccionario de versiones
     versions = {}
     if manager == "npm":
-        if args.node_version:
-            versions["node"] = args.node_version
-        if args.npm_version:
-            versions["npm"] = args.npm_version
+        if not args.node_version or not args.npm_version:
+            print("ERROR: Debe especificar --node-version y --npm-version para npm")
+            sys.exit(1)
+        versions["node"] = args.node_version
+        versions["npm"] = args.npm_version
     elif manager == "composer":
-        if args.php_version:
-            versions["php"] = args.php_version
+        if not args.php_version:
+            print("ERROR: Debe especificar --php-version para composer")
+            sys.exit(1)
+        versions["php"] = args.php_version
 
     # Calcular hash local
     hash_hex = HashCalculator.calculate_hash(manager, file_list, versions)
@@ -797,10 +911,8 @@ def main():
     files_b64 = {}
     for fp in file_list:
         with open(fp, "rb") as f:
-            bcontent = f.read()
-            files_b64[os.path.basename(fp)] = base64.b64encode(bcontent).decode("utf-8")
+            files_b64[os.path.basename(fp)] = base64.b64encode(f.read()).decode("utf-8")
 
-    # Construir payload JSON
     payload = {
         "manager": manager,
         "hash": hash_hex,
@@ -811,7 +923,6 @@ def main():
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    # Hacer POST a /v1/cache
     url_cache = f"{endpoint}/v1/cache"
     print(f"[INFO] Enviando petición a {url_cache} ...")
     try:
@@ -845,7 +956,6 @@ def main():
         if zip_resp.status_code != 200:
             print(f"ERROR: No se pudo descargar ZIP (código {zip_resp.status_code}).")
             sys.exit(1)
-        # Crear carpeta temporal para guardar ZIP
         tmp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         with open(tmp_zip.name, "wb") as f:
             for chunk in zip_resp.iter_content(chunk_size=8192):
@@ -862,13 +972,10 @@ def main():
     elif manager == "composer":
         target_dir = os.path.join(os.getcwd(), "vendor")
     else:
-        # Default: extraer en carpeta "deps"
         target_dir = os.path.join(os.getcwd(), "deps")
 
-    # Eliminar carpeta existente (si existe) para evitar conflictos
     if os.path.isdir(target_dir):
         print(f"[INFO] Eliminando carpeta existente: {target_dir}")
-        import shutil
         shutil.rmtree(target_dir)
 
     os.makedirs(target_dir, exist_ok=True)
@@ -876,7 +983,6 @@ def main():
         zip_ref.extractall(target_dir)
     print(f"[INFO] Dependencias extraídas en: {target_dir}")
 
-    # Opcional: eliminar ZIP local
     os.remove(tmp_zip.name)
     print("[INFO] Proceso completado con éxito.")
     sys.exit(0)
@@ -885,36 +991,14 @@ if __name__ == "__main__":
     main()
 ```
 
-#### Comentarios de Pseudocódigo Cliente
-
-1. **Estructura modular**:
-
-   * `HashCalculator` está desacoplado del resto. Si se cambia algoritmo (por ejemplo, a SHA1), solo se modifica esa clase.
-   * El pipeline está claramente definido (lectura, hash, envío, descarga).
-   * Uso de librería `requests` para HTTP.
-
-2. **Validaciones**:
-
-   * Comprobación de existencia de ficheros.
-   * Validación mínima de `manager`.
-   * Control de códigos HTTP (200, 401, otros).
-
-3. **Manejo de excepciones**:
-
-   * Captura de errores de red (`RequestException`).
-   * Salida con código de error en consola para trazabilidad.
-
-4. **Extracción de ZIP**:
-
-   * Elimina carpeta previa para evitar mezclas de versiones.
-   * Extrae todo el contenido en la carpeta indicada por `manager`.
-
 ---
 
 ### 8.2 Pseudocódigo Servidor
 
 ```python
 #!/usr/bin/env python3
+# server/interfaces/main.py
+
 import argparse
 import base64
 import hashlib
@@ -926,334 +1010,177 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Dependencias externas:
-# pip install fastapi uvicorn python-multipart aiofiles
-
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
-# ---------------------------------------
-# DOMAIN: Entidades y Value Objects
-# ---------------------------------------
+# Importar dominio e infraestructura
+from server.domain.hash_constants import HASH_ALGORITHM, HASH_BLOCK_SIZE
+from server.domain.dependency_set import DependencySet
+from server.domain.cache_object import CacheObject
+from server.domain.cache_repository import ICacheRepository
+from server.infrastructure.file_system_cache_repository import FileSystemCacheRepository
+from server.infrastructure.api_key_validator import ApiKeyValidator
+from server.infrastructure.docker_utils import run_in_docker
+from server.domain.installer import InstallerFactory
+from server.domain.zip_util import ZipUtil
 
-class DependencySet:
-    """
-    Entidad que representa la combinación única de:
-    - manager (npm, composer)
-    - contenidos de ficheros (definición + lockfile)
-    - versiones opcionales (node, npm, php)
-    """
-    def __init__(self, manager: str, file_contents: Dict[str, bytes], versions: Dict[str, str]):
-        self.manager = manager
-        self.file_contents = file_contents  # {"package.json": b"...", "package.lock": b"..."}
-        self.versions = versions            # {"node":"14.20.0", "npm":"6.14.13"}
-        self.hash = self.calculate_hash()
-
-    def calculate_hash(self) -> str:
-        sha = hashlib.sha256()
-        sha.update(self.manager.encode("utf-8"))
-        sha.update(b"\n")
-        for name in sorted(self.file_contents.keys()):
-            content = self.file_contents[name]
-            sha.update(content)
-        for key in sorted(self.versions.keys()):
-            val = self.versions[key]
-            sha.update(f"{key}={val}\n".encode("utf-8"))
-        return sha.hexdigest()
-
-class CacheObject:
-    """
-    Representa el objeto cacheado en disco, con rutas a:
-    - output_folder: carpeta donde se guardan node_modules o vendor
-    - meta_file: archivo .hash
-    - zip_file: archivo .zip
-    """
-    def __init__(self, base_dir: Path, hash_hex: str, manager: str):
-        self.hash = hash_hex
-        self.manager = manager
-        # Directorio de nivel 1 = dos primeros caracteres, nivel 2 = siguientes dos
-        h0_2 = hash_hex[0:2]
-        h2_4 = hash_hex[2:4]
-        self.cache_root = base_dir / "objects" / h0_2 / h2_4 / f"{hash_hex}.{manager}"
-        self.output_folder_name = "node_modules" if manager == "npm" else "vendor"
-        self.output_folder = self.cache_root / self.output_folder_name
-        self.meta_file = self.cache_root / f"{hash_hex}.{manager}.hash"
-        self.zip_file = self.cache_root / f"{hash_hex}.zip"
-
-    def exists(self) -> bool:
-        return self.cache_root.is_dir() and self.meta_file.is_file() and self.zip_file.is_file()
-
-# ---------------------------------------
-# DOMAIN: Interfaces / Repositorios
-# ---------------------------------------
-class ICacheRepository:
-    def get(self, cache_key: str) -> Optional[CacheObject]:
-        raise NotImplementedError
-    def save(self, cache_obj: CacheObject) -> None:
-        raise NotImplementedError
-    def compute_path(self, cache_key: str) -> Path:
-        raise NotImplementedError
-
-class FileSystemCacheRepository(ICacheRepository):
-    def __init__(self, base_dir: Path):
-        self.base_dir = base_dir
-        # Asegurarse que existe 'objects' bajo base_dir
-        (self.base_dir / "objects").mkdir(parents=True, exist_ok=True)
-
-    def compute_path(self, cache_key: str) -> Path:
-        # cache_key = "<hash>.<manager>"
-        hash_hex, manager = cache_key.split(".")
-        h0_2 = hash_hex[0:2]
-        h2_4 = hash_hex[2:4]
-        return self.base_dir / "objects" / h0_2 / h2_4 / cache_key
-
-    def get(self, cache_key: str) -> Optional[CacheObject]:
-        target = self.compute_path(cache_key)
-        # Validar existencia de meta_file y zip_file
-        hash_hex, manager = cache_key.split(".")
-        obj = CacheObject(self.base_dir, hash_hex, manager)
-        if obj.exists():
-            return obj
-        return None
-
-    def save(self, cache_obj: CacheObject) -> None:
-        # Asumir que todas las carpetas y ficheros ya existen en disco
-        # Solo se asegura la ruta principal
-        cache_obj.cache_root.mkdir(parents=True, exist_ok=True)
-        # (Los archivos ya han sido copiados por el caso de uso)
-        # Metadata y ZIP ya creados externamente, por lo que no hay más acción
-        return
-
-# ---------------------------------------
-# DOMAIN: Instaladores de Dependencias
-# ---------------------------------------
-class DependencyInstaller:
-    """
-    Interfaz común para generar dependencias:
-    - npm: ejecuta 'npm ci'
-    - composer: ejecuta 'composer install'
-    """
-    def __init__(self, versions: Dict[str, str]):
-        self.versions = versions
-
-    @property
-    def output_folder_name(self) -> str:
-        raise NotImplementedError
-
-    def install(self, work_dir: Path) -> None:
-        """
-        Debe clonar los ficheros de definición en work_dir, luego ejecutar comando de instalación
-        y generar folder de salida en work_dir / output_folder_name
-        """
-        raise NotImplementedError
-
-class NpmInstaller(DependencyInstaller):
-    @property
-    def output_folder_name(self) -> str:
-        return "node_modules"
-
-    def install(self, work_dir: Path) -> None:
-        # Opcional: Instalar versión específica de Node y NPM (usa nvm o similares)
-        node_version = self.versions.get("node")
-        npm_version = self.versions.get("npm")
-        # (En este pseudocódigo, se asume que la versión adecuada ya está instalada en el host)
-        # Ejecutar comando npm ci dentro de work_dir
-        cmd = ["npm", "ci", "--ignore-scripts", "--cache", str(work_dir / ".npm_cache")]
-        # Ejemplo: si se quiere usar npx para ejecutar una versión específica
-        # if node_version: cmd = ["npx", f"node@{node_version}", ...]
-        process = subprocess.run(cmd, cwd=str(work_dir), capture_output=True)
-        if process.returncode != 0:
-            # Arrojar excepción para propagar error
-            raise RuntimeError(f"npm ci falló: {process.stderr.decode()}")
-
-class ComposerInstaller(DependencyInstaller):
-    @property
-    def output_folder_name(self) -> str:
-        return "vendor"
-
-    def install(self, work_dir: Path) -> None:
-        php_version = self.versions.get("php")
-        # Ejecutar composer install
-        cmd = ["composer", "install", "--no-dev", "--prefer-dist", "--no-interaction", "--no-scripts"]
-        process = subprocess.run(cmd, cwd=str(work_dir), capture_output=True)
-        if process.returncode != 0:
-            raise RuntimeError(f"composer install falló: {process.stderr.decode()}")
-
-class InstallerFactory:
-    def get_installer(self, manager: str, versions: Dict[str, str]) -> DependencyInstaller:
-        if manager == "npm":
-            return NpmInstaller(versions)
-        elif manager == "composer":
-            return ComposerInstaller(versions)
-        else:
-            raise ValueError(f"Installer no implementado para manager '{manager}'")
-
-# ---------------------------------------
-# DOMAIN: Utilidades de Compresión / Metadata
-# ---------------------------------------
-class ZipUtil:
-    @staticmethod
-    def list_all_files(root: Path) -> List[Path]:
-        """
-        Retorna lista de Paths relativos de todos los archivos dentro de 'root'
-        """
-        files = []
-        for dirpath, _, filenames in os.walk(root):
-            for fn in filenames:
-                full_path = Path(dirpath) / fn
-                rel = full_path.relative_to(root)
-                files.append(rel)
-        return files
-
-    @staticmethod
-    def compute_checksums(root: Path) -> Dict[str, str]:
-        """
-        Para cada archivo en root, calcula sha256 y retorna dict {ruta_relativa: checksum}
-        """
-        checksums = {}
-        for rel in ZipUtil.list_all_files(root):
-            full = root / rel
-            sha = hashlib.sha256()
-            with open(full, "rb") as f:
-                while True:
-                    chunk = f.read(8192)
-                    if not chunk:
-                        break
-                    sha.update(chunk)
-            checksums[str(rel)] = sha.hexdigest()
-        return checksums
-
-    @staticmethod
-    def write_metadata(cache_dir: Path, hash_hex: str, manager: str,
-                       file_list: List[Path], checksums: Dict[str, str]) -> None:
-        """
-        Escribe el archivo <hash>.<manager>.hash dentro de cache_dir, 
-        con líneas formato: ruta_relativa;tamaño;checksum
-        """
-        meta_path = cache_dir / f"{hash_hex}.{manager}.hash"
-        with open(meta_path, "w", encoding="utf-8") as meta_f:
-            for rel in sorted(file_list):
-                full = cache_dir / manager / rel if manager == "npm" else cache_dir / manager / rel
-                size = (cache_dir / rel).stat().st_size if (cache_dir / rel).exists() else 0
-                chksum = checksums.get(str(rel), "")
-                # Formar línea
-                line = f"{rel};{size};{chksum}\n"
-                meta_f.write(line)
-
-    @staticmethod
-    def compress_folder(src_folder: Path, zip_path: Path) -> None:
-        """
-        Comprime el contenido de src_folder en zip_path (sin incluir carpeta raíz).
-        """
-        parent = zip_path.parent
-        parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for dirpath, _, filenames in os.walk(src_folder):
-                for fn in filenames:
-                    full = Path(dirpath) / fn
-                    rel = full.relative_to(src_folder)
-                    zf.write(full, arcname=str(rel))
-
-# ---------------------------------------
-# DOMAIN: Validador de API Key
-# ---------------------------------------
-class ApiKeyValidator:
-    def __init__(self, valid_keys: List[str]):
-        # Guardar keys en memoria; se pueden cifrar/hashes si se requiere
-        self.keys = set(valid_keys)
-
-    def validate(self, api_key: str) -> bool:
-        return api_key in self.keys
-
-# ---------------------------------------
-# APPLICATION: Casos de Uso / UseCases
-# ---------------------------------------
+# ----------------------------
+# Application: DTOs
+# ----------------------------
 class CacheRequestDTO(BaseModel):
     manager: str
     hash: str
-    files: Dict[str, str]       # base64: {"package.json": "<...>", ...}
-    versions: Dict[str, str]    # {"node":"14.20.0","npm":"6.14.13"}
+    files: Dict[str, str]       # {"package.json": "<base64>", ...}
+    versions: Dict[str, str]    # {"node":"14.20.0","npm":"6.14.13"} o {"php":"8.1.0"}
 
 class CacheResponseDTO(BaseModel):
     download_url: str
     cache_hit: bool
 
+# ----------------------------
+# Application: HandleCacheRequest
+# ----------------------------
 class HandleCacheRequest:
-    def __init__(self, cache_repo: ICacheRepository, installer_factory: InstallerFactory, zip_util: ZipUtil):
+    def __init__(
+        self,
+        cache_repo: ICacheRepository,
+        installer_factory: InstallerFactory,
+        zip_util: ZipUtil,
+        supported_versions_node: Dict[str, str],
+        supported_versions_php: List[str],
+        use_docker: bool
+    ):
         self.cache_repo = cache_repo
         self.installer_factory = installer_factory
         self.zip_util = zip_util
+        self.supported_versions_node = supported_versions_node  # {"14.20.0":"6.14.13", ...}
+        self.supported_versions_php = supported_versions_php    # ["8.1.0","7.4.0", ...]
+        self.use_docker = use_docker
 
     def execute(self, request_dto: CacheRequestDTO, base_download_url: str) -> CacheResponseDTO:
-        cache_key = f"{request_dto.hash}.{request_dto.manager}"
-        cache_obj = self.cache_repo.get(cache_key)
+        manager = request_dto.manager
+        hash_hex = request_dto.hash
+        versions = request_dto.versions
+
+        # Determinar manager_version
+        if manager == "npm":
+            node_ver = versions.get("node")
+            npm_ver = versions.get("npm")
+            if not node_ver or not npm_ver:
+                raise RuntimeError("Faltan versiones de Node/NPM")
+            manager_version = f"{node_ver}_{npm_ver}"
+            # Verificar versiones soportadas
+            supported_npm_ver = self.supported_versions_node.get(node_ver)
+            if supported_npm_ver != npm_ver:
+                if not self.use_docker:
+                    raise ValueError("Versión de Node/NPM no soportada")
+                else:
+                    use_docker_exec = True
+            else:
+                use_docker_exec = False
+        elif manager == "composer":
+            php_ver = versions.get("php")
+            if not php_ver:
+                raise RuntimeError("Falta versión de PHP")
+            manager_version = php_ver
+            if php_ver not in self.supported_versions_php:
+                if not self.use_docker:
+                    raise ValueError("Versión de PHP no soportada")
+                else:
+                    use_docker_exec = True
+            else:
+                use_docker_exec = False
+        else:
+            raise ValueError(f"Manager no implementado: {manager}")
+
+        cache_key = f"{hash_hex}.{manager}"
+        cache_obj = self.cache_repo.get(cache_key, manager_version)
         if cache_obj and cache_obj.exists():
-            # Cache Hit
-            download_url = f"{base_download_url}/download/{request_dto.hash}.zip"
+            download_url = f"{base_download_url}/download/{hash_hex}.zip"
             return CacheResponseDTO(download_url=download_url, cache_hit=True)
-        # Cache Miss → generar dependencias
+
+        # Cache Miss
         # 1) Crear carpeta temporal
         temp_dir = Path(tempfile.mkdtemp(prefix=cache_key))
-        # 2) Decodificar archivos base64 y escribir en temp_dir
+        # 2) Escribir ficheros decodificados en temp_dir
         for fname, b64 in request_dto.files.items():
             data = base64.b64decode(b64)
-            fpath = temp_dir / fname
-            with open(fpath, "wb") as wf:
+            with open(temp_dir / fname, "wb") as wf:
                 wf.write(data)
+
         # 3) Instalar dependencias
-        installer = self.installer_factory.get_installer(request_dto.manager, request_dto.versions)
-        # Copiar lockfile a padre del folder de instalación (muchos gestores esperan fichero en cwd)
-        # Asumimos que workdir: temp_dir
+        installer = self.installer_factory.get_installer(manager, versions)
         try:
-            installer.install(temp_dir)
+            if use_docker_exec:
+                # Usar Docker para generar dependencias
+                run_in_docker(temp_dir, manager, versions)
+            else:
+                # Instalar localmente
+                installer.install(temp_dir)
         except Exception as e:
-            # Limpieza temp y lanzar error 500
             shutil.rmtree(temp_dir, ignore_errors=True)
-            raise e
+            raise RuntimeError(f"Error al instalar dependencias: {e}")
 
-        # 4) Copiar carpeta generada a cache_dir
-        cache_path = self.cache_repo.compute_path(cache_key)
-        # Carpeta destino: <cache_dir>/objects/..../<hash>.<manager>/node_modules (o vendor)
-        final_output = cache_path / installer.output_folder_name
-        final_output.parent.mkdir(parents=True, exist_ok=True)
-        # Copiar recursivamente temp_dir/node_modules → final_output
-        shutil.copytree(temp_dir / installer.output_folder_name, final_output)
+        # 4) Copiar carpetas de dependencias a cache
+        final_cache_dir = self.cache_repo.compute_path(cache_key)
+        output_folder = installer.output_folder_name  # "node_modules" o "vendor"
+        src_folder = temp_dir / output_folder
+        dest_folder = final_cache_dir / output_folder
+        dest_folder.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_folder, dest_folder)
 
-        # 5) Generar metadata
-        file_list = self.zip_util.list_all_files(final_output)
-        checksums = self.zip_util.compute_checksums(final_output)
-        self.zip_util.write_metadata(cache_path, request_dto.hash, request_dto.manager, file_list, checksums)
+        # 5) Generar índice de hash de archivos
+        file_list = self.zip_util.list_all_files(dest_folder)
+        checksums = self.zip_util.compute_checksums(dest_folder)
+        self.zip_util.write_index(
+            final_cache_dir, hash_hex, manager, manager_version, file_list, checksums
+        )
+        # Copiar índice a cache/indices
+        idx_src = final_cache_dir / f"{hash_hex}.{manager}.{manager_version}.index"
+        idx_dest = final_cache_dir.parent.parent.parent / "indices" / idx_src.name
+        idx_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(idx_src, idx_dest)
 
-        # 6) Comprimir cache
-        zip_path = cache_path / f"{request_dto.hash}.zip"
-        self.zip_util.compress_folder(final_output, zip_path)
+        # 6) Comprimir carpeta de dependencias
+        zip_path = final_cache_dir / f"{hash_hex}.zip"
+        self.zip_util.compress_folder(dest_folder, zip_path)
 
-        # 7) Persistir cache_obj en repo
-        cache_obj = CacheObject(cache_path.parent.parent.parent, request_dto.hash, request_dto.manager)
+        # 7) Persistir en repo
+        cache_obj = CacheObject(final_cache_dir.parent.parent.parent, hash_hex, manager, manager_version)
         self.cache_repo.save(cache_obj)
 
-        # 8) Limpieza de carpeta temporal
+        # 8) Limpiar carpeta temporal
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-        download_url = f"{base_download_url}/download/{request_dto.hash}.zip"
+        download_url = f"{base_download_url}/download/{hash_hex}.zip"
         return CacheResponseDTO(download_url=download_url, cache_hit=False)
 
-# ---------------------------------------
-# INTERFACES / ENTRYPOINT: Servidor FastAPI
-# ---------------------------------------
-def create_app(cache_dir: Path, is_public: bool, api_keys: List[str], base_download_url: str) -> FastAPI:
+# ----------------------------
+# Interfaces / Entrypoint: FastAPI
+# ----------------------------
+def create_app(
+    cache_dir: Path,
+    is_public: bool,
+    api_keys: List[str],
+    supported_versions_node: Dict[str, str],
+    supported_versions_php: List[str],
+    use_docker_on_mismatch: bool,
+    base_download_url: str
+) -> FastAPI:
     app = FastAPI()
     cache_repo = FileSystemCacheRepository(cache_dir)
     installer_factory = InstallerFactory()
     zip_util = ZipUtil()
     validator = ApiKeyValidator(api_keys) if not is_public else None
-    handler = HandleCacheRequest(cache_repo, installer_factory, zip_util)
+    handler = HandleCacheRequest(
+        cache_repo, installer_factory, zip_util,
+        supported_versions_node, supported_versions_php, use_docker_on_mismatch
+    )
 
-    # Ruta para generar o recuperar cache
     @app.post("/v1/cache", response_model=CacheResponseDTO)
     async def cache_endpoint(request: Request):
-        # API Key
+        # Validar API Key si no es público
         if not is_public:
             auth: Optional[str] = request.headers.get("Authorization")
             if not auth or not auth.startswith("Bearer "):
@@ -1269,32 +1196,28 @@ def create_app(cache_dir: Path, is_public: bool, api_keys: List[str], base_downl
             raise HTTPException(status_code=400, detail=f"Payload inválido: {e}")
 
         # Validar manager soportado
-        supported = ["npm", "composer"]
-        if dto.manager not in supported:
+        supported_managers = ["npm", "composer"]  # Podría ampliarse dinámicamente
+        if dto.manager not in supported_managers:
             raise HTTPException(status_code=400, detail=f"Manager no soportado: {dto.manager}")
 
-        # Llamar caso de uso
         try:
             response_dto = handler.execute(dto, base_download_url)
-        except RuntimeError as e:
-            raise HTTPException(status_code=500, detail=f"Error al generar dependencias: {e}")
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except RuntimeError as re:
+            raise HTTPException(status_code=500, detail=str(re))
         return JSONResponse(status_code=200, content=response_dto.dict())
 
-    # Ruta para descargar ZIP
     @app.get("/download/{hash}.zip")
     async def download_endpoint(hash: str):
-        # Notar que no se valida API key aquí: el usuario ya la tuvo que pasar al crear
-        # Podría implementarse control adicional (TTL, tokens únicos, etc.)
-        # Construir ruta en disco
-        # Para deducir manager, podríamos examinar subdirectorios: simplificación: 
-        # Intentar buscar zip en ambos managers
+        # Buscar ZIP en objects/ para cualquier manager
         for manager in ["npm", "composer"]:
-            # Reconstruir ruta de forma análoga
+            # Reconstruir rutas
             h0_2 = hash[0:2]
             h2_4 = hash[2:4]
-            cache_path = cache_dir / "objects" / h0_2 / h2_4
-            folder = cache_path / f"{hash}.{manager}"
-            zip_path = folder / f"{hash}.zip"
+            cache_root = cache_dir / "objects" / h0_2 / h2_4
+            folder_npm = cache_root / f"{hash}.{manager}"
+            zip_path = folder_npm / f"{hash}.zip"
             if zip_path.is_file():
                 return FileResponse(zip_path, filename=f"{hash}.zip", media_type="application/zip")
         raise HTTPException(status_code=404, detail="ZIP no encontrado")
@@ -1305,33 +1228,58 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Servidor DepCacheProxy")
     parser.add_argument("port", type=int, help="Puerto HTTP donde escuchará (ej. 8080)")
     parser.add_argument("--cache_dir", type=str, required=True, help="Directorio base de cache")
-    parser.add_argument("--is_public", action="store_true", default=False, help="Si se especifica, servidor público (sin API key)")
-    parser.add_argument("--api-keys", type=str, required=False, help="Lista separada por comas de API keys válidas")
+    parser.add_argument(
+        "--supported-versions-node", type=str, required=True,
+        help="Lista de pares node_version:npm_version separados por comas, e.g. 14.20.0:6.14.13,16.15.0:8.5.0"
+    )
+    parser.add_argument(
+        "--supported-versions-php", type=str, required=True,
+        help="Lista de versiones de PHP separadas por comas, e.g. 8.1.0,7.4.0"
+    )
+    parser.add_argument(
+        "--use-docker-on-version-mismatch",
+        action="store_true",
+        help="Si se especifica, usar Docker para generar dependencias cuando la versión no está soportada"
+    )
+    parser.add_argument("--is_public", action="store_true", default=False, help="Servidor público (sin API key)")
+    parser.add_argument("--api-keys", type=str, required=False, help="Claves válidas separadas por comas")
     return parser.parse_args()
 
 def main():
     args = parse_args()
     port = args.port
     cache_dir = Path(args.cache_dir)
+    use_docker = args.use_docker_on_version_mismatch
     is_public = args.is_public
+
+    # Parsear supported_versions_node en dict
+    supported_versions_node = {}
+    for pair in args.supported_versions_node.split(","):
+        node_v, npm_v = pair.split(":")
+        supported_versions_node[node_v.strip()] = npm_v.strip()
+
+    supported_versions_php = [v.strip() for v in args.supported_versions_php.split(",")]
+
     api_keys = []
     if not is_public:
         if not args.api_keys:
             print("ERROR: Debe proporcionar --api-keys cuando no es público.")
             sys.exit(1)
         api_keys = [k.strip() for k in args.api_keys.split(",") if k.strip()]
-    # Verificar cache_dir es escribible
+
+    # Verificar cache_dir
     try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "objects").mkdir(parents=True, exist_ok=True)
+        (cache_dir / "indices").mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        print(f"ERROR: No se puede crear/acceder a cache_dir '{cache_dir}': {e}")
+        print(f"ERROR: No se puede crear accesos en cache_dir '{cache_dir}': {e}")
         sys.exit(1)
 
-    # Construir base_download_url (sin trailing slash)
     base_download_url = f"http://localhost:{port}"
-    # Crear app FastAPI
-    app = create_app(cache_dir, is_public, api_keys, base_download_url)
-    # Ejecutar con Uvicorn
+    app = create_app(
+        cache_dir, is_public, api_keys,
+        supported_versions_node, supported_versions_php, use_docker, base_download_url
+    )
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=port)
 
@@ -1339,65 +1287,33 @@ if __name__ == "__main__":
     main()
 ```
 
-#### Comentarios de Pseudocódigo Servidor
+#### 8.2.1 Comentarios de Pseudocódigo Servidor
 
-1. **Estructura DDD**
+* **Constantes de Hash** definidas en `hash_constants.py`.
+* **Validación de versiones**:
 
-   * División en `domain/` (entidades: `DependencySet`, `CacheObject`; repositorio: `ICacheRepository`), `application/` (`HandleCacheRequest`), `infrastructure/` (`FileSystemCacheRepository`, `NpmInstaller`, `ComposerInstaller`, `ZipUtil`, `ApiKeyValidator`) y `interfaces/` (`create_app`, endpoints).
+  * Se comparan tuplas `(node, npm)` contra el dict `supported_versions_node`.
+  * Si no coincide y `use_docker_on_version_mismatch=true`, se usa Docker.
+  * En caso contrario, se lanza `ValueError` para producir `400 Bad Request`.
+* **Docker**:
 
-2. **Validación de API Key**
+  * Función `run_in_docker(temp_dir, manager, versions)` en `server/infrastructure/docker_utils.py` gestiona ejecución con `subprocess.run(["docker", ...])`.
+* **Índices de Hash**:
 
-   * Se hace al inicio de `cache_endpoint`. Si falla, se lanza `HTTPException(401)`.
-
-3. **Instalación de dependencias**
-
-   * `InstallerFactory` elige el `DependencyInstaller` adecuado basándose en `manager`.
-   * Cada `DependencyInstaller` implementa `install(work_dir)` y lanza excepción en caso de fallo.
-
-4. **Persistencia en FileSystem**
-
-   * `FileSystemCacheRepository` guarda la estructura tal como la crea el caso de uso.
-   * El método `get(cache_key)` construye un `CacheObject` temporal y llama `exists()`.
-
-5. **Generación de Metadatos y ZIP**
-
-   * `ZipUtil.list_all_files()` obtiene lista recursiva de archivos en la carpeta de dependencias.
-   * `ZipUtil.compute_checksums()` calcula checksum SHA256 de cada archivo.
-   * `ZipUtil.write_metadata()` escribe el fichero `.hash` con `ruta;tamaño;checksum`.
-   * `ZipUtil.compress_folder()` genera el ZIP que luego será servido por `FileResponse`.
-
-6. **Rutas HTTP**
-
-   * `POST /v1/cache`: recibe JSON y retorna JSON con URL y estado de cache (hit/miss).
-   * `GET /download/{hash}.zip`: busca en ambos gestores (`npm`, `composer`) el ZIP y lo retorna.
-
-7. **Errores y Excepciones**
-
-   * Si `manager` no soportado → `400 Bad Request`.
-   * Si error al instalar dependencias → `500 Internal Server Error`.
-   * Si ZIP no existe al intentar descargar → `404 Not Found`.
-
-8. **Concurrencia**
-
-   * FastAPI + Uvicorn permiten concurrencia asíncrona.
-   * Múltiples peticiones `POST /v1/cache` para el mismo hash concurrentemente podrían causar “race condition” al copiar carpetas.
-
-     * Se recomienda implementar un mecanismo de **locking** (p. ej. fichero `.lock` o uso de `asyncio.Lock`) por `cache_key` para asegurar que solo un proceso genera el mismo hash a la vez; los demás esperan.
+  * Generación de `<hash>.<manager>.<manager_version>.index` y copia concurrente a `cache/indices/`.
 
 ---
 
 ## 9. API HTTP y Esquema de Rutas
 
-### 9.1 Rutas Principales
+### 9.1 Rutas
 
-| Método | Ruta                   | Descripción                                                 | Request Body                 | Respuestas                                                                                                                          |
-| ------ | ---------------------- | ----------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/v1/cache`            | Solicita cache de dependencias: hit/miss y URL de descarga. | JSON (ver `CacheRequestDTO`) | `200 OK` → `{ download_url: str, cache_hit: bool }` <br> `400 Bad Request` <br> `401 Unauthorized` <br> `500 Internal Server Error` |
-| GET    | `/download/{hash}.zip` | Descarga el ZIP generado para el hash proporcionado.        | Ninguno                      | `200 OK` → ZIP <br> `404 Not Found`                                                                                                 |
+| Método | Ruta                   | Descripción                                                 | Request Body      | Respuestas                                                                                                    |
+| ------ | ---------------------- | ----------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/cache`            | Solicita cache de dependencias: hit/miss y URL de descarga. | `CacheRequestDTO` | `200 OK` → `CacheResponseDTO` <br> `400 Bad Request` <br> `401 Unauthorized` <br> `500 Internal Server Error` |
+| GET    | `/download/{hash}.zip` | Descarga el ZIP generado para el hash proporcionado.        | Ninguno           | `200 OK` → ZIP <br> `404 Not Found`                                                                           |
 
-### 9.2 Esquema de Request y Response
-
-#### 9.2.1 `CacheRequestDTO`
+### 9.2 `CacheRequestDTO`
 
 ```jsonc
 {
@@ -1416,12 +1332,15 @@ if __name__ == "__main__":
 
 * **Campos**:
 
-  * `manager` (string, obligatorio): identificador de gestor de dependencias (`npm`, `composer`, etc.).
-  * `hash` (string, obligatorio): hash SHA256 calculado por el cliente.
-  * `files` (map\<string, string>, obligatorio): diccionario de nombre de fichero → contenido codificado en Base64.
-  * `versions` (map\<string, string>, opcional): claves/valores de versiones. Ej. `{ "node": "14.20.0", "npm": "6.14.13" }` para NPM; `{ "php": "8.1.0" }` para Composer.
+  * `manager` (string, obligatorio).
+  * `hash` (string, obligatorio).
+  * `files` (map\<string, string>, obligatorio).
+  * `versions` (map\<string, string>, obligatorio):
 
-#### 9.2.2 `CacheResponseDTO`
+    * Para `npm`: debe incluir `"node"` y `"npm"`.
+    * Para `composer`: debe incluir `"php"`.
+
+### 9.3 `CacheResponseDTO`
 
 ```jsonc
 {
@@ -1432,229 +1351,479 @@ if __name__ == "__main__":
 
 * **Campos**:
 
-  * `download_url` (string, obligatorio): URL absoluta para descargar el ZIP.
-  * `cache_hit` (boolean, obligatorio): indica si fue “hit” (cache existente) o “miss” (se generó).
+  * `download_url` (string, obligatorio).
+  * `cache_hit` (boolean, obligatorio).
 
 ---
 
-## 10. Escenarios de Uso y Casos de Prueba
+## 10. Estructura de Pruebas
 
-A continuación se describen distintos escenarios de uso, con inputs esperados y validaciones.
+Para asegurar calidad y cobertura, se recomienda organizar pruebas en:
 
-### 10.1 Escenario 1: Cache hit en NPM (Servidor público)
+```
+tests/
+├── unit/
+│   ├── test_hash_calculator.py          # Pruebas de hashing
+│   ├── test_api_key_validator.py        # Pruebas de validador de API Key
+│   ├── test_installer_factory.py        # Pruebas de fábrica de instaladores
+│   └── test_zip_util.py                 # Pruebas de utilidades de ZIP
+├── integration/
+│   ├── test_handle_cache_request_hit.py   # Flujo de cache hit
+│   ├── test_handle_cache_request_miss.py  # Flujo de cache miss
+│   └── test_docker_installation.py        # Verificar que run_in_docker funciona
+├── functional/
+│   ├── test_cli_client_request.py         # Verificar cliente → servidor (modo mock)
+│   └── test_server_download_endpoint.py    # Verificar descarga de ZIP
+└── e2e/
+    ├── test_end_to_end_npm.py             # Configurar contenedores: servidor+cliente Docker
+    └── test_end_to_end_composer.py        # Mismo para Composer
+```
 
-1. **Cliente invoca**:
+### 10.1 Pruebas Unitarias
+
+* **`test_hash_calculator.py`**
+
+  * Caso 1: Mismos ficheros y versiones → mismo hash.
+  * Caso 2: Diferente versión de NPM → hash distinto.
+* **`test_api_key_validator.py`**
+
+  * Clave válida → `validate` devuelve `True`.
+  * Clave inválida → `False`.
+* **`test_installer_factory.py`**
+
+  * `get_installer("npm", {...})` → instancia `NpmInstaller`.
+  * `get_installer("composer", {...})` → instancia `ComposerInstaller`.
+  * `get_installer("otro")` → lanza `ValueError`.
+* **`test_zip_util.py`**
+
+  * `list_all_files` retorna lista correcta de rutas relativas.
+  * `compute_checksums` produce checksums correctos.
+  * `compress_folder` genera ZIP válida.
+
+### 10.2 Pruebas de Integración
+
+* **`test_handle_cache_request_hit.py`**
+
+  * Preparar `cache_repo` con carpeta de cache existente (usando `CacheObject`) y verificar que `handler.execute` retorna `cache_hit=True` y URL correcta.
+* **`test_handle_cache_request_miss.py`**
+
+  * Crear un `CacheRequestDTO` con hash nuevo.
+  * Asegurarse de que tras `execute`, existen:
+
+    * Carpeta `cache/objects/.../<hash>.<manager>/node_modules` o `vendor`.
+    * Índice en `cache/objects/.../<hash>.<manager>/<hash>.<manager>.<manager_version>.index` y en `cache/indices/`.
+    * Archivo ZIP correcto.
+    * `cache_hit=False`.
+* **`test_docker_installation.py`**
+
+  * Verificar que, dada versión no soportada y `use_docker=true`, `run_in_docker` cree carpeta `node_modules/` o `vendor/` en `temp_dir`.
+
+### 10.3 Pruebas Funcionales
+
+* **`test_cli_client_request.py`**
+
+  * Ejecutar `dep_cache_proxy_client` apuntando a un servidor FastAPI levantado en modo test (usando `TestClient` de FastAPI).
+  * Verificar mensajes de consola y resultado de extracción en carpeta adecuada.
+* **`test_server_download_endpoint.py`**
+
+  * Insertar manualmente un ZIP en `cache/objects/.../<hash>.<manager>/`.
+  * Hacer `GET /download/<hash>.zip` y verificar content-type y contenido.
+
+### 10.4 Pruebas End-to-End
+
+* **`test_end_to_end_npm.py`**
+
+  * Levantar contenedor Docker con la imagen del servidor.
+  * Montar volumen local como `cache_dir`.
+  * Ejecutar `dep_cache_proxy_client` en otro contenedor o en host.
+  * Verificar que el ZIP se genera, se descarga y se extrae correctamente en contenedor host.
+* **`test_end_to_end_composer.py`**
+
+  * Similar para Composer.
+
+> **Nota**: Utilizar `pytest` y fixtures para aislar entornos temporales (`tmp_path`).
+
+---
+
+## 11. Escenarios de Uso y Casos de Prueba
+
+### 11.1 Escenario 1: Cache hit en NPM (Servidor público, versión soportada)
+
+1. **Servidor** se arranca con:
 
    ```bash
-   dep_cache_proxy_client http://localhost:8080 npm --files=package.json,package.lock
+   dep_cache_proxy_server 8080 \
+     --cache_dir=./cache \
+     --supported-versions-node=14.20.0:6.14.13,16.15.0:8.5.0 \
+     --supported-versions-php=8.1.0 \
+     --use-docker-on-version-mismatch \
+     --is_public
    ```
-2. **Cliente**:
 
-   * Calcula hash (p. ej. `ff0033aa...`).
-   * Envía `POST /v1/cache` con payload (sin Authorization, porque servidor es público).
-3. **Servidor**:
+   * `is_public=True` → no valida API key.
+   * Versiones soportadas:
 
-   * `is_public = True` → No valida key.
-   * `manager="npm"` soportado.
-   * `cache_key="ff0033aa....npm"`.
-   * `cache_repo.get("ff0033aa....npm")` → devuelve `CacheObject` porque existe.
-   * Responde con `200 OK` y JSON:
+     * Node/NPM: `(14.20.0,6.14.13)` y `(16.15.0,8.5.0)`.
+     * PHP: `8.1.0`.
+
+2. **Cache existente**:
+
+   * `cache/objects/ab/12/ab12cd34.npm/node_modules/...` y `ab12cd34.npm.14.20.0_6.14.13.index`, `ab12cd34.zip`.
+
+3. **Cliente**:
+
+   ```bash
+   dep_cache_proxy_client http://localhost:8080/npm npm \
+     --files=package.json,package.lock \
+     --node-version=14.20.0 \
+     --npm-version=6.14.13
+   ```
+
+   * Calcula hash `ab12cd34`.
+   * Envía `POST /v1/cache` con JSON y recibe:
 
      ```jsonc
-     { "download_url": "http://localhost:8080/download/ff0033aa... .zip", "cache_hit": true }
+     { "download_url": "http://localhost:8080/download/ab12cd34.zip", "cache_hit": true }
      ```
+   * El cliente descarga y extrae en `./node_modules/`.
+
+4. **Resultado**: Cache hit exitoso sin generar nada nuevo.
+
+---
+
+### 11.2 Escenario 2: Cache miss en Composer (Servidor con API key, versión soportada)
+
+1. **Servidor** arranca con:
+
+   ```bash
+   dep_cache_proxy_server 8080 \
+     --cache_dir=./cache \
+     --supported-versions-node=14.20.0:6.14.13 \
+     --supported-versions-php=8.1.0,7.4.0 \
+     --api-keys=KEY1,KEY2
+   ```
+
+   * `use_docker_on_version_mismatch` no se especifica (default `false`).
+   * Versiones soportadas:
+
+     * Node/NPM: `(14.20.0,6.14.13)`.
+     * PHP: `8.1.0`, `7.4.0`.
+
+2. **Cliente**:
+
+   ```bash
+   dep_cache_proxy_client http://localhost:8080/api composer \
+     --apikey=KEY1 \
+     --files=composer.json,composer.lock \
+     --php-version=8.1.0
+   ```
+
+   * Hash calculado: `aa11bb22`.
+   * Envía petición:
+
+     ```jsonc
+     {
+       "manager": "composer",
+       "hash": "aa11bb22",
+       "files": { "composer.json": "<base64>", "composer.lock": "<base64>" },
+       "versions": { "php": "8.1.0" }
+     }
+     ```
+   * Servidor valida API key → OK.
+   * `php_version = "8.1.0"` está en `supported_versions_php`.
+   * `cache_repo.get("aa11bb22.composer", "8.1.0")` → `None` (no existe).
+   * Crea `temp_dir`, escribe ficheros, ejecuta `installer.install(temp_dir)` que hace:
+
+     ```bash
+     cd temp_dir
+     composer install --no-dev --prefer-dist --no-scripts
+     ```
+   * Copia `temp_dir/vendor` a `cache/objects/aa/11/aa11bb22.composer/vendor`.
+   * Genera índice `aa11bb22.composer.8.1.0.index` en:
+
+     ```
+     cache/objects/aa/11/aa11bb22.composer/aa11bb22.composer.8.1.0.index
+     ```
+
+     y copia a:
+
+     ```
+     cache/indices/aa11bb22.composer.8.1.0.index
+     ```
+   * Genera `aa11bb22.zip` con `/vendor` y lo coloca en:
+
+     ```
+     cache/objects/aa/11/aa11bb22.composer/aa11bb22.zip
+     ```
+   * Limpia `temp_dir`.
+
+3. **Respuesta**:
+
+   ```jsonc
+   { "download_url": "http://localhost:8080/download/aa11bb22.zip", "cache_hit": false }
+   ```
+
 4. **Cliente**:
 
-   * Descarga ZIP y lo extrae en `./node_modules/`.
-   * Termina con éxito.
-
-**Pruebas**:
-
-* Verificar que `download_url` apunte a un ZIP que realmente existe y es un ZIP válido.
-* Confirmar que carpeta `node_modules/` coincide con versión esperada.
+   * Descarga y descomprime en `./vendor/`.
 
 ---
 
-### 10.2 Escenario 2: Cache miss en Composer (Servidor con API key)
+### 11.3 Escenario 3: Versión no soportada sin Docker
 
-1. **Servidor** arrancado con:
-
-   ```bash
-   dep_cache_proxy_server 8080 --cache_dir=./cache --api-keys=KEY1,KEY2
-   ```
-2. **Cliente invoca**:
+1. **Servidor**:
 
    ```bash
-   dep_cache_proxy_client http://localhost:8080 composer --apikey=KEY1 --files=composer.json,composer.lock --php-version=8.1.0
+   dep_cache_proxy_server 8080 \
+     --cache_dir=./cache \
+     --supported-versions-node=14.20.0:6.14.13 \
+     --supported-versions-php=8.1.0 \
+     --api-keys=KEY1
    ```
-3. **Cliente**:
 
-   * Calcula hash (p. ej. `aa11bb22...`).
-   * Envía `POST /v1/cache` con cabecera `Authorization: Bearer KEY1` y payload.
-4. **Servidor**:
+   * `use_docker_on_version_mismatch=false` (default).
 
-   * Valida API key `KEY1` → OK.
-   * `manager="composer"`, hash no existe en cache.
-   * Crea `temp_dir="tmp/aa11bb22...".`
-   * Escribe `composer.json` + `composer.lock` en temp.
-   * Ejecuta `composer install --no-dev --prefer-dist` en temp.
-
-     * Resultado: `temp/vendor/` con dependencias.
-   * Copia `temp/vendor/` a `cache/objects/aa/11/aa11bb22... .composer/vendor/`.
-   * Calcula lista de archivos y checksums.
-   * Escribe `cache/objects/aa/11/aa11bb22... .composer/aa11bb22... .composer.hash`.
-   * Comprime a `cache/objects/aa/11/aa11bb22... .composer/aa11bb22... .zip`.
-   * Limpia `temp_dir`.
-   * Retorna `200 OK` con `{"download_url":"http://localhost:8080/download/aa11bb22... .zip", "cache_hit": false}`.
-5. **Cliente**:
-
-   * Descarga ZIP y descomprime en `./vendor/`.
-   * Termina con éxito.
-
-**Pruebas**:
-
-* Verificar estructura en `cache/objects/aa/11/aa11bb22... .composer/`.
-* Confirmar que `composer install` se ejecuta correctamente en contenedor/servidor.
-* Confirmar que `cache_hit` pasa a `true` en siguiente invocación con mismos ficheros.
-
----
-
-### 10.3 Escenario 3: Petición con API key inválida
-
-1. **Cliente invoca**:
-
-   ```bash
-   dep_cache_proxy_client http://localhost:8080 npm --apikey=INVALID --files=package.json,package.lock
-   ```
-2. **Servidor**:
-
-   * Recibe `Authorization: Bearer INVALID`.
-   * `validator.validate("INVALID")` → `False`.
-   * Retorna `401 Unauthorized` con JSON:
-
-     ```jsonc
-     { "detail": "API Key inválida" }
-     ```
-3. **Cliente**:
-
-   * Detecta `resp.status_code == 401` y sale con código de error tras indicar mensaje en consola.
-
----
-
-### 10.4 Escenario 4: Manager no soportado
-
-1. **Cliente invoca**:
-
-   ```bash
-   dep_cache_proxy_client http://localhost:8080 pip --files=requirements.txt,requirements.lock
-   ```
 2. **Cliente**:
 
-   * `manager="pip"` no está en `supported=["npm","composer"]`.
-   * Imprime: `ERROR: Gestor 'pip' no soportado. Opciones: npm, composer` y sale.
+   ```bash
+   dep_cache_proxy_client http://localhost:8080/api npm \
+     --apikey=KEY1 \
+     --files=package.json,package.lock \
+     --node-version=16.15.0 \
+     --npm-version=8.5.0
+   ```
 
-*Opcionalmente*, si movemos la validación al servidor:
+   * Hash `cc33dd44`.
+   * Servidor valida versiones:
 
-* Servidor recibiría `POST` y devolvería `400 Bad Request` con detalle “Manager no soportado: pip”.
+     * `(16.15.0,8.5.0)` **no** está en `supported_versions_node`.
+     * `use_docker_on_version_mismatch==false` →
 
----
+       * `handler.execute` lanza `ValueError("Versión de Node/NPM no soportada")`.
+   * `cache_endpoint` captura `ValueError` y responde:
 
-## 11. Notas de Seguridad, Escalabilidad y Errores Comunes
+     ```http
+     HTTP 400 Bad Request
+     Content-Type: application/json
 
-### 11.1 Seguridad
+     { "detail": "Versión de Node/NPM no soportada" }
+     ```
 
-1. **Validación de Inputs**
+3. **Cliente**:
 
-   * El campo `manager` debe compararse contra una lista blanca (whitelist) de gestores permitidos.
-   * Los nombres de archivos (`package.json`, etc.) se asumen seguros; de todos modos, no se debe permitir rutas relativas con `../`.
-   * **No ejecutar scripts potencialmente maliciosos**:
-
-     * En NPM, se usa `--ignore-scripts` para evitar que se ejecuten `preinstall`/`postinstall`.
-     * En Composer, usar `--no-scripts` para evitar hooks.
-
-2. **Inyección de Comandos**
-
-   * Cuando se genera el comando `npm ci` o `composer install`, no concatenar strings de forma insegura.
-   * Usar lista de argumentos en `subprocess.run([...])`.
-
-3. **API Key**
-
-   * Guardar las keys en memoria (o en un almacén seguro).
-   * Comparar de forma constante para evitar “timing attacks”.
-   * No incluir `--api-keys` en logs.
-
-4. **Entrega de ZIP**
-
-   * Servir archivos solo desde `cache/objects`. Evitar rutas arbitrarias.
-   * Evitar que el cliente descargue cualquier otro archivo en el servidor (no exponer rutas del sistema de archivos).
-
-5. **HTTPS**
-
-   * El servidor **no** soporta HTTPS nativamente. Debe usarse un proxy inverso (Nginx, Traefik) que ofrezca TLS/SSL.
-
-### 11.2 Escalabilidad y Concurrencia
-
-1. **Servir múltiples peticiones concurrentes**
-
-   * FastAPI + Uvicorn (configurado con múltiples workers) permite concurrencia.
-   * Evitar condiciones de carrera:
-
-     * **Lock por hash**: Si dos clientes piden simultáneamente el mismo `hash`, ambos entran en el bloque “cache miss”. El primero genera la cache, el segundo trata de generar a la vez → posible corrupción.
-     * Solución:
-
-       * Usar un lock a nivel de sistema de archivos. Ejemplo (Linux): `flock` en un archivo `<cache_path>.lock`.
-       * O usar una tabla simple en memoria: `locks = {}` con `asyncio.Lock` para ese hash.
-
-2. **Tamaño de Cache**
-
-   * Configurar políticas de retención:
-
-     * Máximo de N entradas.
-     * Expiración basado en tiempo (ej. borrar cachés > 30 días sin uso).
-     * Eliminar manual (`delete(cache_key)`).
-
-3. **Uso de S3 u Otros**
-
-   * En lugar de `FileSystemCacheRepository`, podría construirse `S3CacheRepository`, donde los objetos (carpetas y ZIP) se almacenan en buckets S3.
-   * Mantener metadata localmente (RDS) o en DynamoDB, apuntando a URLs de S3.
-
-### 11.3 Errores Comunes y Cómo Manejarlos
-
-1. **Hash no coincide entre cliente y servidor**
-
-   * Asegurarse de que el algoritmo de hash sea idéntico.
-   * Validar que se está ordenando adecuadamente la lista de archivos y las claves de `versions`.
-
-2. **Falla en `npm ci` o `composer install`**
-
-   * Verificar que en el servidor existe la versión correcta de Node/NPM/PHP/Composer.
-   * Revisar logs (`stdout` y `stderr`) para detectar errores de compatibilidad.
-   * El servidor debería reportar el error exacto al cliente (código 500 con detalle).
-
-3. **Permisos de Directorios**
-
-   * `cache_dir` debe ser escribible por el proceso.
-   * Si el servidor corre en modo “sin permisos de root”, asegurarse de que el usuario tenga acceso a `cache_dir`.
-
-4. **Limpieza Inadecuada de Carpetas Temporales**
-
-   * Si el proceso de instalación falla, debe borrarse la carpeta temporal (`temp_dir`) para evitar acumular basura.
-   * Utilizar `shutil.rmtree(temp_dir, ignore_errors=True)` en bloque `finally`.
-
-5. **El ZIP supera el máximo permitido**
-
-   * Algunos proxies o clientes HTTP limitan el tamaño de respuesta.
-   * Configurar chunked transfer o resumable downloads (fuera del alcance de la primera versión).
+   * Recibe `resp.status_code == 400` y muestra mensaje de error en consola.
 
 ---
 
-## 12. Conclusiones
+### 11.4 Escenario 4: Versión no soportada con Docker
 
-El proyecto **DepCacheProxy** (`dep_cache_proxy`) ofrece una solución genérica y escalable para cachear y servir dependencias de gestores como NPM o Composer, acelerando pipelines de construcción y mitigando problemas de red inestable. Al seguir principios DDD y SOLID, se logra una arquitectura modular, mantenible y extensible:
+1. **Servidor**:
 
-* **Dominio**: Entidades `DependencySet` y `CacheObject`, repositorio `ICacheRepository`.
-* **Aplicación**: Caso de uso `HandleCacheRequest` orquesta la lógica de validación de cache, generación de dependencias y compresión.
-* **Infraestructura**: `FileSystemCacheRepository`, `NpmInstaller`, `ComposerInstaller`, `ZipUtil`, `ApiKeyValidator`.
-* **Interfaces**: FastAPI para servidor (`POST /v1/cache`, `GET /download/{hash}.zip`), cliente CLI con `requests` y `argparse`.
+   ```bash
+   dep_cache_proxy_server 8080 \
+     --cache_dir=./cache \
+     --supported-versions-node=14.20.0:6.14.13 \
+     --supported-versions-php=8.1.0 \
+     --use-docker-on-version-mismatch \
+     --api-keys=KEY1
+   ```
 
-El pseudocódigo provisto puede servir como base directa para implementar la librería en Python. Se recomiendan pruebas exhaustivas, integración continua (CI) y despliegue con contenedores Docker, montando el volumen de `cache_dir` y configurando un proxy inverso para TLS.
+   * `use_docker_on_version_mismatch=true`.
+
+2. **Cliente**:
+
+   ```bash
+   dep_cache_proxy_client http://localhost:8080/api npm \
+     --apikey=KEY1 \
+     --files=package.json,package.lock \
+     --node-version=16.15.0 \
+     --npm-version=8.5.0
+   ```
+
+   * Hash `dd55ee66`.
+   * Servidor valida versiones, detecta desajuste:
+
+     * `use_docker_exec = True`.
+   * Crea `temp_dir`, escribe ficheros.
+   * Llama a `run_in_docker(temp_dir, "npm", {"node":"16.15.0","npm":"8.5.0"})`:
+
+     ```bash
+     docker run --rm \
+       -v /tmp/dep_cache_dd55ee66:/usr/src/app \
+       -w /usr/src/app \
+       node:16.15.0 \
+       sh -c "npm ci --ignore-scripts --no-audit --cache .npm_cache"
+     ```
+   * Docker genera `node_modules/` en `temp_dir`.
+   * Continúa como en cache miss: copia a `cache/objects/dd/55/dd55ee66.npm/node_modules`, genera índice, comprime, etc.
+   * Responde `200 OK` con `cache_hit=false` y `download_url`.
+
+3. **Cliente**:
+
+   * Descarga ZIP y extrae en `./node_modules/`.
+
+---
+
+## 12. Notas de Seguridad, Escalabilidad y Errores Comunes
+
+(Se mantienen las mismas notas generales que en la versión anterior, con énfasis en el uso de Docker.)
+
+### 12.1 Seguridad
+
+1. **Saneamiento de Inputs**:
+
+   * Validar `manager` contra lista blanca.
+   * Verificar que `versions` estén en formato esperado (por ejemplo, regex para semver).
+
+2. **Ejecución de Comandos**:
+
+   * Sin Docker: usar listas en `subprocess.run([...])`.
+   * Con Docker: no concatenar cadenas con variables sin sanitizar (`node_version`, etc.).
+
+3. **API Keys**:
+
+   * Guardar con hashing si se desea mayor seguridad.
+   * Comparar de forma constante (timing-safe).
+
+4. **Entrega de ZIP**:
+
+   * No exponer rutas de sistema fuera de `cache/objects`.
+
+5. **Docker**:
+
+   * Asegurarse de que las imágenes oficiales (`node:<versión>`, `composer:<php_version>`) sean confiables.
+
+### 12.2 Escalabilidad
+
+1. **Concurrencia y Locks**:
+
+   * Implementar lock por `cache_key` para evitar múltiples procesos generando la misma cache simultáneamente.
+   * Ejemplo: crear archivo `<cache_root>.lock` y usar `fcntl.flock`.
+
+2. **Retención de Cache**:
+
+   * Políticas de expiración:
+
+     * TTL (p. ej., borrar caches > 30 días sin uso).
+     * Mantener un contador de accesos para cache más usados.
+
+3. **Almacenamiento Distribuido**:
+
+   * Reemplazar `FileSystemCacheRepository` por `S3CacheRepository` u otro backend.
+
+### 12.3 Errores Comunes
+
+1. **Desajuste de Hash**:
+
+   * Verificar que se usan las mismas constantes de hashing en cliente y servidor.
+
+2. **Falla en Instalación con Docker**:
+
+   * Verificar que Docker esté instalado y corriendo en el servidor.
+   * Asegurarse de que el usuario del proceso tenga permisos para invocar Docker.
+
+3. **Volumen Montado Incorrectamente**:
+
+   * Asegurar que `-v <temp_dir>:/usr/src/app` en Docker mapea correctamente.
+
+4. **Permisos en `cache_dir`**:
+
+   * El proceso de servidor necesita permisos de lectura/escritura en `cache/`.
+
+5. **Carpeta Temporal no Borrada**:
+
+   * En caso de error, siempre llamar a `shutil.rmtree(temp_dir, ignore_errors=True)` en un bloque `finally`.
+
+---
+
+## 13. Facilidad para Añadir Nuevos Managers
+
+Para agregar un nuevo gestor de dependencias (por ejemplo, Yarn, Pip), seguir estos pasos:
+
+1. **Crear Subclase de `DependencyInstaller`**
+
+   * En `server/domain/installer.py`, añadir:
+
+     ```python
+     class YarnInstaller(DependencyInstaller):
+         @property
+         def output_folder_name(self) -> str:
+             return "node_modules"  # o la carpeta que Yarn use
+
+         def install(self, work_dir: Path) -> None:
+             cmd = ["yarn", "install", "--frozen-lockfile"]
+             process = subprocess.run(cmd, cwd=str(work_dir), capture_output=True)
+             if process.returncode != 0:
+                 raise RuntimeError(f"Yarn install falló: {process.stderr.decode()}")
+
+         def install_with_docker(self, work_dir: Path, versions: Dict[str, str]) -> None:
+             node_ver = versions.get("node")
+             if not node_ver:
+                 raise RuntimeError("Especificar node_version para Yarn en Docker")
+             cmd = [
+                 "docker", "run", "--rm",
+                 "-v", f"{work_dir}:/usr/src/app",
+                 "-w", "/usr/src/app",
+                 f"node:{node_ver}",
+                 "sh", "-c", "yarn install --frozen-lockfile"
+             ]
+             process = subprocess.run(cmd, capture_output=True)
+             if process.returncode != 0:
+                 raise RuntimeError(f"Yarn install en Docker falló: {process.stderr.decode()}")
+     ```
+2. **Actualizar `InstallerFactory`**
+
+   * Modificar método `get_installer`:
+
+     ```python
+     def get_installer(self, manager: str, versions: Dict[str, str]) -> DependencyInstaller:
+         if manager == "npm":
+             return NpmInstaller(versions)
+         elif manager == "composer":
+             return ComposerInstaller(versions)
+         elif manager == "yarn":
+             return YarnInstaller(versions)
+         else:
+             raise ValueError(f"Installer no implementado para manager '{manager}'")
+     ```
+3. **Modificar Validación de Manager**
+
+   * En `cache_endpoint`, permitir `manager == "yarn"`.
+   * En validación de versiones, exigir `node_version` para Yarn (similar a NPM).
+4. **Actualizar `supported_managers`**
+
+   * Agregar `"yarn"` en la lista de managers soportados.
+5. **Actualizar Documentación**
+
+   * Agregar sección en `README.md` describiendo cómo configurar `supported-versions-node` para Yarn.
+   * Incluir ejemplo de uso:
+
+     ```bash
+     dep_cache_proxy_client http://localhost:8080/api yarn \
+       --apikey=KEY \
+       --files=package.json,yarn.lock \
+       --node-version=14.20.0
+     ```
+6. **Pruebas para el Nuevo Manager**
+
+   * Agregar tests unitarios en `tests/unit/test_installer_factory.py`.
+   * Agregar tests de integración en `tests/integration/test_handle_cache_request_yarn.py`.
+   * Agregar pruebas funcionales y E2E similares a las de NPM.
+
+Así, añadir un nuevo manager implica crear la clase del instalador, actualizar la fábrica e incluirlo en la validación de `manager` y en las configuraciones de versiones.
+
+---
+
+## 14. Conclusiones
+
+Este análisis extendido incorpora:
+
+* **Opciones de servidor** para manejar versiones no soportadas con Docker.
+* **Requerimiento de hacer obligatorias** las versiones en el servidor, mientras que en el cliente siguen siendo opcionales.
+* **Constantes de hash** definidas en `hash_constants.py`.
+* **Estructura de cache** revisada, con índices separados y nombres que incluyen versiones de manager.
+* **Carpetas temporales** para `node_modules` y `vendor` antes de copiar a cache.
+* **Detalle de pruebas**: unitarias, integración, funcionales y end-to-end.
+* **Guía clara para agregar nuevos managers**.
+
+Con esta documentación, un equipo de desarrollo o una IA como Claude puede implementar **DepCacheProxy** en Python, estructurado en módulos DDD/SOLID, con toda la lógica de versiones, Docker, hashing y cache.
