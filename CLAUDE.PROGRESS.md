@@ -76,3 +76,8 @@ This file tracks the implementation progress of the DepCacheProxy server compone
   - Tests for index dictionary conversion
   - Tests for file hash calculation with various sizes
 - **NEW**: Added calculate_file_hash() utility function for content hashing
+- **FIXED**: Resolved DependencyFile API mismatch:
+  - Reverted to original design where DependencyFile stores content (bytes) instead of content_hash
+  - This matches the existing infrastructure expectations and test suite
+  - Updated domain/dependency_set.py to use the correct API with content field
+  - All 30 tests now passing successfully

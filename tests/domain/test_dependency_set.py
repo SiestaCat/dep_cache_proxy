@@ -10,38 +10,40 @@ class TestDependencySet:
     def test_calculate_bundle_hash_deterministic(self):
         """Test that bundle hash is deterministic for same inputs."""
         files = [
-            DependencyFile("package.json", "abc123", 1024),
-            DependencyFile("node_modules/lib/index.js", "def456", 2048),
+            DependencyFile("package.json", b'{"name": "test"}'),
+            DependencyFile("node_modules/lib/index.js", b'console.log("hello");'),
         ]
         
         dep_set1 = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0", "npm": "9.0.0"},
-            files=files
+            files=files,
+            node_version="18.0.0",
+            npm_version="9.0.0"
         )
         
         dep_set2 = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0", "npm": "9.0.0"},
-            files=files
+            files=files,
+            node_version="18.0.0", 
+            npm_version="9.0.0"
         )
         
         assert dep_set1.calculate_bundle_hash() == dep_set2.calculate_bundle_hash()
     
     def test_calculate_bundle_hash_different_manager(self):
         """Test that different managers produce different hashes."""
-        files = [DependencyFile("composer.json", "abc123", 512)]
+        files = [DependencyFile("composer.json", b'{"require": {}}')]
         
         npm_set = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0"},
-            files=files
+            files=files,
+            node_version="18.0.0"
         )
         
         composer_set = DependencySet(
             manager="composer",
-            versions={"php": "8.1.0"},
-            files=files
+            files=files,
+            php_version="8.1.0"
         )
         
         assert npm_set.calculate_bundle_hash() != composer_set.calculate_bundle_hash()
@@ -49,51 +51,68 @@ class TestDependencySet:
     def test_calculate_bundle_hash_file_order_independent(self):
         """Test that file order doesn't affect hash."""
         files1 = [
-            DependencyFile("a.txt", "hash1", 100),
-            DependencyFile("b.txt", "hash2", 200),
+            DependencyFile("a.txt", b"content a"),
+            DependencyFile("b.txt", b"content b"),
         ]
         
         files2 = [
-            DependencyFile("b.txt", "hash2", 200),
-            DependencyFile("a.txt", "hash1", 100),
+            DependencyFile("b.txt", b"content b"),
+            DependencyFile("a.txt", b"content a"),
         ]
         
         dep_set1 = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0"},
-            files=files1
+            files=files1,
+            node_version="18.0.0"
         )
         
         dep_set2 = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0"},
-            files=files2
+            files=files2,
+            node_version="18.0.0"
         )
         
         assert dep_set1.calculate_bundle_hash() == dep_set2.calculate_bundle_hash()
     
-    def test_to_index_dict(self):
-        """Test conversion to index dictionary format."""
+    def test_get_file_hashes(self):
+        """Test file hash calculation."""
         files = [
-            DependencyFile("package.json", "abc123", 1024),
-            DependencyFile("node_modules/lib/index.js", "def456", 2048),
+            DependencyFile("package.json", b'{"name": "test"}'),
+            DependencyFile("index.js", b'console.log("hello");'),
         ]
         
         dep_set = DependencySet(
             manager="npm",
-            versions={"node": "18.0.0", "npm": "9.0.0"},
             files=files
         )
         
-        index_dict = dep_set.to_index_dict()
+        file_hashes = dep_set.get_file_hashes()
         
-        assert index_dict["manager"] == "npm"
-        assert index_dict["versions"] == {"node": "18.0.0", "npm": "9.0.0"}
-        assert "bundle_hash" in index_dict
-        assert len(index_dict["files"]) == 2
-        assert index_dict["files"][0]["path"] == "package.json"
-        assert index_dict["files"][0]["hash"] == "abc123"
-        assert index_dict["files"][0]["size"] == 1024
+        assert len(file_hashes) == 2
+        assert "package.json" in file_hashes
+        assert "index.js" in file_hashes
+        assert len(file_hashes["package.json"]) == 64  # SHA256 produces 64 hex chars
+        assert len(file_hashes["index.js"]) == 64
+    
+    def test_calculate_bundle_hash_version_changes(self):
+        """Test that version changes affect bundle hash."""
+        files = [DependencyFile("package.json", b'{"name": "test"}')]
+        
+        dep_set1 = DependencySet(
+            manager="npm",
+            files=files,
+            node_version="18.0.0",
+            npm_version="9.0.0"
+        )
+        
+        dep_set2 = DependencySet(
+            manager="npm",
+            files=files,
+            node_version="18.0.1",  # Different node version
+            npm_version="9.0.0"
+        )
+        
+        assert dep_set1.calculate_bundle_hash() != dep_set2.calculate_bundle_hash()
 
 
 class TestFileHash:
