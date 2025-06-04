@@ -54,7 +54,10 @@ cache/
 
 ## Development Commands
 
-Since the project hasn't been implemented yet, here are the planned commands based on the design:
+### Running Tests
+```bash
+source venv/bin/activate && python -m pytest tests/ -v
+```
 
 ### Server Usage (planned)
 ```bash

@@ -21,7 +21,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 #### Infrastructure Layer
 - ✅ `infrastructure/file_system_cache_repository.py` - File system implementation (2025-01-06)
 - ✅ `infrastructure/api_key_validator.py` - API key validation (2025-01-06)
-- [ ] `infrastructure/docker_utils.py` - Docker utilities for version handling
+- ✅ `infrastructure/docker_utils.py` - Docker utilities for version handling (2025-01-06)
 
 #### Application Layer
 - [ ] DTOs for request/response models
@@ -36,6 +36,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - ✅ Unit tests for domain models - `tests/test_dependency_set.py` (2025-01-06)
 - ✅ Integration tests for repositories - `tests/test_file_system_cache_repository.py` (2025-01-06)
 - ✅ Unit tests for API key validator - `tests/test_api_key_validator.py` (2025-01-06)
+- ✅ Unit tests for Docker utilities - `tests/test_docker_utils.py` (2025-01-06)
 - [ ] API endpoint tests
 - [ ] End-to-end tests with Docker
 
@@ -81,3 +82,19 @@ This file tracks the implementation progress of the DepCacheProxy server compone
   - This matches the existing infrastructure expectations and test suite
   - Updated domain/dependency_set.py to use the correct API with content field
   - All 30 tests now passing successfully
+- Implemented infrastructure/docker_utils.py with comprehensive Docker support:
+  - Checks Docker availability with caching
+  - Handles installation with Docker for version mismatches
+  - Supports npm, yarn, composer, pipenv, and poetry package managers
+  - Maps managers to appropriate Docker images
+  - Generates secure install commands with --ignore-scripts flags
+  - Collects installed files from appropriate directories
+  - Includes proper error handling and timeouts
+- Created comprehensive unit tests for docker_utils.py (18 tests, all passing):
+  - Tests for Docker availability checks (success, failure, timeout, not installed)
+  - Tests for lockfile/manifest name resolution
+  - Tests for Docker image selection
+  - Tests for install command generation
+  - Tests for successful and failed Docker installations
+  - Tests for file collection from installation directories
+  - All tests use proper mocking to avoid actual Docker operations
