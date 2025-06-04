@@ -12,6 +12,8 @@ DepCacheProxy is a dependency caching proxy system designed to cache and serve d
 
 **IMPORTANT**: This project is currently in the design phase. The `analysis.md` file contains the complete architectural design and specifications, but no code has been implemented yet.
 
+**Progress Tracking**: The `CLAUDE.PROGRESS.md` file tracks implementation progress. This file must be updated whenever progress is made on the project, along with any necessary updates to this CLAUDE.md file.
+
 ## Architecture
 
 The system follows Domain-Driven Design (DDD) and SOLID principles with these key components:
