@@ -53,7 +53,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - Implemented cache_repository.py interface defining the contract for cache operations
 - Implemented infrastructure/file_system_cache_repository.py with full functionality:
   - Stores individual file blobs with content-addressable storage
-  - Creates JSON indices mapping file paths to hashes
+  - Creates JSON indexes mapping file paths to hashes
   - Generates ZIP files on demand from stored blobs
   - Supports thread-safe concurrent operations
   - Implements deduplication at the file level

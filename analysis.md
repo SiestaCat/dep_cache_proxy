@@ -69,7 +69,7 @@ This analysis documents the design of **DepCacheProxy** with the following prior
 2. **Path → Hash Index**
 
    * For each set of dependencies (bundle), generate a JSON index that maps relative paths (e.g., `"file.js"`, `"subfolder/file.js"`) to file hashes.
-   * Store that index in `cache/indices`, named `<bundle_hash>.<manager>.<manager_version>.index`.
+   * Store that index in `cache/indexes`, named `<bundle_hash>.<manager>.<manager_version>.index`.
 
 3. **ZIP Reconstructed from Blobs**
 
@@ -156,7 +156,7 @@ This analysis documents the design of **DepCacheProxy** with the following prior
    * For each bundle (bundle\_hash generated from `package.json`, `package.lock`, versions, etc.), create a JSON file in:
 
      ```
-     cache/indices/<bundle_hash>.<manager>.<manager_version>.index
+     cache/indexes/<bundle_hash>.<manager>.<manager_version>.index
      ```
    * Index format (JSON):
 
@@ -215,7 +215,7 @@ This analysis documents the design of **DepCacheProxy** with the following prior
    * **Integration Tests**:
 
      * `HandleCacheRequest` (hit and miss).
-     * Verify `cache/objects`, `cache/indices`, and indexes are created.
+     * Verify `cache/objects`, `cache/indexes`, and indexes are created.
    * **Functional Tests**:
 
      * Run `dep_cache_proxy_client` → FastAPI server.
@@ -294,7 +294,7 @@ dep_cache_proxy/
 ├── cache/
 │   ├── objects/
 │   │   └── (blobs by hash)
-│   ├── indices/
+│   ├── indexes/
 │   │   └── (bundle → {relative_path: file_hash} indexes)
 │   └── bundles/
 │       └── (ZIPs for each bundle)
@@ -365,7 +365,7 @@ dep_cache_proxy_client <endpoint_url> <manager> \
   1. Create a temporary directory.
   2. Install dependencies (locally or in Docker).
   3. For each resulting file, compute its `file_hash` (SHA256) and store the blob in `cache/objects`.
-  4. Create a JSON index in `cache/indices` mapping relative path → `file_hash`.
+  4. Create a JSON index in `cache/indexes` mapping relative path → `file_hash`.
   5. Reconstruct the ZIP from blobs and save it in `cache/bundles/<bundle_hash>.zip`.
   6. Respond with `download_url`.
 * On a “cache hit”:
@@ -497,7 +497,7 @@ class ICacheRepository(ABC):
     @abstractmethod
     def save_index(self, bundle_hash: str, manager: str, manager_version: str, index_data: dict) -> None:
         """
-        Saves the JSON index in cache/indices.
+        Saves the JSON index in cache/indexes.
         """
         pass
 
@@ -611,7 +611,7 @@ Under `<cache_dir>`, there are three main subfolders:
 │   ├── aa/bb/aabb12323232322...   # file blob with hash aabb...
 │   ├── ee/cc/eecc1232132132121... # file blob with hash eecc...
 │   └── ...
-├── indices/
+├── indexes/
 │   ├── <bundle_hash>.npm.14.20.0_6.14.13.index
 │   ├── <bundle_hash2>.composer.8.1.0.index
 │   └── ...
@@ -626,7 +626,7 @@ Under `<cache_dir>`, there are three main subfolders:
   * Stores individual file blobs (no file extensions), named by `file_hash`.
   * Two directory levels: first two characters `h[0:2]`, next two `h[2:4]`.
 
-* **`indices/`**
+* **`indexes/`**
 
   * Each index is a JSON file with content:
 
@@ -758,7 +758,7 @@ Under `<cache_dir>`, there are three main subfolders:
           * Index path:
 
             ```
-            cache/indices/<bundle_hash>.<manager>.<manager_version>.index
+            cache/indexes/<bundle_hash>.<manager>.<manager_version>.index
             ```
           * Save `index_data` as JSON to that path.
        6. **Generate ZIP**:
@@ -1138,10 +1138,10 @@ def create_app(
 
     # Initialize repositories and infrastructure
     objects_dir = cache_dir / "objects"
-    indices_dir = cache_dir / "indices"
+    indexes_dir = cache_dir / "indexes"
     bundles_dir = cache_dir / "bundles"
     objects_dir.mkdir(parents=True, exist_ok=True)
-    indices_dir.mkdir(parents=True, exist_ok=True)
+    indexes_dir.mkdir(parents=True, exist_ok=True)
     bundles_dir.mkdir(parents=True, exist_ok=True)
 
     cache_repo = FileSystemCacheRepository(cache_dir)
@@ -1239,7 +1239,7 @@ def main():
 
     # Create cache directory structure
     (cache_dir / "objects").mkdir(parents=True, exist_ok=True)
-    (cache_dir / "indices").mkdir(parents=True, exist_ok=True)
+    (cache_dir / "indexes").mkdir(parents=True, exist_ok=True)
     (cache_dir / "bundles").mkdir(parents=True, exist_ok=True)
 
     base_download_url = f"http://localhost:{port}"
@@ -1396,7 +1396,7 @@ tests/
   * After `execute`, verify:
 
     * Blobs exist in `cache/objects/`.
-    * JSON index exists in `cache/indices/`.
+    * JSON index exists in `cache/indexes/`.
     * ZIP exists in `cache/bundles/`.
   * Verify `cache_hit=False`.
 
@@ -1451,7 +1451,7 @@ tests/
    Suppose `bundle_hash = "ab12cd34..."` was already processed, and the following exist:
 
    * Blobs in `cache/objects/...`.
-   * Index `cache/indices/ab12cd34.npm.14.20.0_6.14.13.index`.
+   * Index `cache/indexes/ab12cd34.npm.14.20.0_6.14.13.index`.
    * ZIP in `cache/bundles/ab12cd34.zip`.
 3. **Client**:
 
@@ -1504,7 +1504,7 @@ tests/
    * Saves JSON index in:
 
      ```
-     cache/indices/aa11bb22.composer.8.1.0.index
+     cache/indexes/aa11bb22.composer.8.1.0.index
      ```
    * Generates ZIP in `cache/bundles/aa11bb22.zip` using blobs:
 
@@ -1721,4 +1721,4 @@ To add a new manager (e.g., Yarn, Pip), follow these steps:
 
 ## 14. Conclusions
 
-This updated analysis corrects the storage strategy in `cache/objects` so that it contains **only individual file blobs** indexed by relative path → file hash. Each bundle’s index resides in `cache/indices`, and the final ZIPs in `cache/bundles`. Version requirements and optional Docker usage remain as designed, along with the hash constants, DDD + SOLID separation, and a thorough testing strategy (unit, integration, functional, and E2E). This documentation should facilitate implementation, maintenance, and adding new dependency managers.
+This updated analysis corrects the storage strategy in `cache/objects` so that it contains **only individual file blobs** indexed by relative path → file hash. Each bundle’s index resides in `cache/indexes`, and the final ZIPs in `cache/bundles`. Version requirements and optional Docker usage remain as designed, along with the hash constants, DDD + SOLID separation, and a thorough testing strategy (unit, integration, functional, and E2E). This documentation should facilitate implementation, maintenance, and adding new dependency managers.

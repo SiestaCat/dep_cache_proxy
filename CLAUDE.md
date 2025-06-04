@@ -30,7 +30,7 @@ This server component follows Domain-Driven Design (DDD) and SOLID principles.
 
 ### Server Features
 - Stores individual files as blobs in `cache/objects/` (content-addressable)
-- Maintains JSON indices mapping relative paths to file hashes
+- Maintains JSON indexes mapping relative paths to file hashes
 - Generates ZIP files from blobs on demand
 - Supports Docker for handling unsupported versions
 - Provides RESTful API for client interactions
@@ -41,7 +41,7 @@ This server component follows Domain-Driven Design (DDD) and SOLID principles.
 ```
 cache/
 ├── objects/     # Individual file blobs (e.g., aa/bb/aabb1232...)
-├── indices/     # JSON mappings of paths to hashes
+├── indexes/     # JSON mappings of paths to hashes
 └── bundles/     # Generated ZIP files
 ```
 

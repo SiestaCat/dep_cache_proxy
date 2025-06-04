@@ -9,7 +9,7 @@ class CacheRepository(ABC):
     Abstract repository interface for managing cached dependencies.
     
     This interface defines the contract for storing and retrieving
-    dependency sets, indices, and bundle files.
+    dependency sets, indexes, and bundle files.
     """
     
     @abstractmethod
@@ -128,7 +128,7 @@ class CacheRepository(ABC):
         Returns:
             Dictionary containing:
             - total_blobs: Number of unique file blobs
-            - total_indices: Number of bundle indices
+            - total_indexes: Number of bundle indexes
             - total_bundles: Number of generated ZIP files
             - cache_size_bytes: Total size of all cached data
         """

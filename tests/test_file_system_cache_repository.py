@@ -27,7 +27,7 @@ class TestFileSystemCacheRepository:
         repo = FileSystemCacheRepository(temp_cache_dir)
         
         assert (temp_cache_dir / "objects").exists()
-        assert (temp_cache_dir / "indices").exists()
+        assert (temp_cache_dir / "indexes").exists()
         assert (temp_cache_dir / "bundles").exists()
     
     def test_has_bundle_returns_false_for_nonexistent(self, repository):
@@ -43,7 +43,7 @@ class TestFileSystemCacheRepository:
         
         repository.store_dependency_set(dep_set)
         
-        index_path = temp_cache_dir / "indices" / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.json"
+        index_path = temp_cache_dir / "indexes" / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.json"
         assert index_path.exists()
         
         with open(index_path, 'r') as f:
@@ -217,6 +217,6 @@ class TestFileSystemCacheRepository:
         stats = repository.get_cache_stats()
         
         assert stats["total_blobs"] == 2
-        assert stats["total_indices"] == 1
+        assert stats["total_indexes"] == 1
         assert stats["total_bundles"] == 1
         assert stats["cache_size_bytes"] > 0

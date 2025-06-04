@@ -16,11 +16,11 @@ class FileSystemCacheRepository(CacheRepository):
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
         self.objects_dir = cache_dir / "objects"
-        self.indices_dir = cache_dir / "indices"
+        self.indexes_dir = cache_dir / "indexes"
         self.bundles_dir = cache_dir / "bundles"
         
         self.objects_dir.mkdir(parents=True, exist_ok=True)
-        self.indices_dir.mkdir(parents=True, exist_ok=True)
+        self.indexes_dir.mkdir(parents=True, exist_ok=True)
         self.bundles_dir.mkdir(parents=True, exist_ok=True)
         
         self._lock = threading.Lock()
@@ -109,7 +109,7 @@ class FileSystemCacheRepository(CacheRepository):
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get statistics about the cache."""
         total_blobs = 0
-        total_indices = 0
+        total_indexes = 0
         total_bundles = 0
         cache_size_bytes = 0
         
@@ -118,9 +118,9 @@ class FileSystemCacheRepository(CacheRepository):
                 total_blobs += 1
                 cache_size_bytes += blob_file.stat().st_size
         
-        for index_file in self.indices_dir.rglob("*.json"):
+        for index_file in self.indexes_dir.rglob("*.json"):
             if index_file.is_file():
-                total_indices += 1
+                total_indexes += 1
                 cache_size_bytes += index_file.stat().st_size
         
         for bundle_file in self.bundles_dir.rglob("*.zip"):
@@ -130,7 +130,7 @@ class FileSystemCacheRepository(CacheRepository):
         
         return {
             "total_blobs": total_blobs,
-            "total_indices": total_indices,
+            "total_indexes": total_indexes,
             "total_bundles": total_bundles,
             "cache_size_bytes": cache_size_bytes
         }
@@ -148,7 +148,7 @@ class FileSystemCacheRepository(CacheRepository):
                     pass
     
     def _get_index_path(self, bundle_hash: str) -> Path:
-        return self.indices_dir / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.json"
+        return self.indexes_dir / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.json"
     
     def _get_bundle_path(self, bundle_hash: str) -> Path:
         return self.bundles_dir / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.zip"
