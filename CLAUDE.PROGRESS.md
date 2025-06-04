@@ -17,6 +17,7 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - ✅ `domain/dependency_set.py` - Bundle hash calculation logic (2025-01-06)
 - ✅ `domain/blob_storage.py` - File blob management (2025-01-06)
 - ✅ `domain/cache_repository.py` - Repository interface (2025-01-06)
+- ✅ `domain/installer.py` - Installer interface and implementations (2025-01-06)
 
 #### Infrastructure Layer
 - ✅ `infrastructure/file_system_cache_repository.py` - File system implementation (2025-01-06)
@@ -24,8 +25,8 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - ✅ `infrastructure/docker_utils.py` - Docker utilities for version handling (2025-01-06)
 
 #### Application Layer
-- [ ] DTOs for request/response models
-- [ ] `application/handle_cache_request.py` - Request orchestration
+- ✅ `application/dtos.py` - DTOs for request/response models (2025-01-06)
+- ✅ `application/handle_cache_request.py` - Request orchestration (2025-01-06)
 
 #### Interfaces Layer
 - [ ] `interfaces/api.py` - FastAPI server setup
@@ -37,6 +38,8 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 - ✅ Integration tests for repositories - `tests/test_file_system_cache_repository.py` (2025-01-06)
 - ✅ Unit tests for API key validator - `tests/test_api_key_validator.py` (2025-01-06)
 - ✅ Unit tests for Docker utilities - `tests/test_docker_utils.py` (2025-01-06)
+- ✅ Unit tests for installers - `tests/test_installer.py` (2025-01-06)
+- [ ] Unit tests for application layer orchestration
 - [ ] API endpoint tests
 - [ ] End-to-end tests with Docker
 
@@ -98,3 +101,31 @@ This file tracks the implementation progress of the DepCacheProxy server compone
   - Tests for successful and failed Docker installations
   - Tests for file collection from installation directories
   - All tests use proper mocking to avoid actual Docker operations
+- Implemented domain/installer.py with dependency installer pattern:
+  - Created abstract DependencyInstaller base class defining the interface
+  - Implemented NpmInstaller for npm package installation using npm ci
+  - Implemented ComposerInstaller for PHP composer package installation
+  - Created InstallerFactory for creating appropriate installers based on manager type
+  - Each installer knows its output folder, lockfile name, and manifest name
+  - Installers use --no-scripts flags for security
+- Created comprehensive unit tests for installer components (12 tests, all passing):
+  - Tests for NpmInstaller properties and installation (success/failure)
+  - Tests for ComposerInstaller properties and installation (success/failure)
+  - Tests for InstallerFactory creating correct installers
+  - Tests for missing version parameters and unsupported managers
+- Implemented application/dtos.py with data transfer objects:
+  - FileData: Represents a file with relative path and content
+  - CacheRequest: Input DTO with manager, versions, lock/manifest content
+  - CacheResponse: Output DTO with bundle hash, download URL, cache hit status
+  - InstallationResult: Internal DTO for installation process results
+- Implemented application/handle_cache_request.py orchestration logic:
+  - HandleCacheRequest class orchestrates the entire cache request flow
+  - Determines whether to use Docker based on version support
+  - Calculates bundle hash from request data
+  - Checks cache for existing bundles (cache hit)
+  - Handles cache miss by installing dependencies (native or Docker)
+  - Stores installed files as blobs with content-addressable storage
+  - Creates JSON index mapping paths to hashes
+  - Generates ZIP file from stored blobs
+  - Returns appropriate response with download URL
+  - Includes comprehensive error handling and cleanup
