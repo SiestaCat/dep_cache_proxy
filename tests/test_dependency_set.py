@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from server.domain.dependency_set import DependencySet, DependencyFile
+from domain.dependency_set import DependencySet, DependencyFile
 
 
 def test_bundle_hash_calculation():
