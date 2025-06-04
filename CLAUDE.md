@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+**This repository contains the server component (`dep_cache_proxy_server`) of the DepCacheProxy system.**
+
 DepCacheProxy is a dependency caching proxy system designed to cache and serve dependency installations (npm, composer, etc.) to avoid redundant installations. The system consists of a client CLI and a server that stores dependencies as individual file blobs with content-addressable storage.
 
 ## Current Status
