@@ -11,22 +11,22 @@ This file tracks the implementation progress of the DepCacheProxy server compone
 ### Implementation Checklist
 
 #### Domain Layer
-- ✅ `server/domain/hash_constants.py` - SHA256 and block size constants (2025-01-06)
-- ✅ `server/domain/dependency_set.py` - Bundle hash calculation logic (2025-01-06)
-- ✅ `server/domain/blob_storage.py` - File blob management (2025-01-06)
-- [ ] `server/domain/cache_repository.py` - Repository interface
+- ✅ `domain/hash_constants.py` - SHA256 and block size constants (2025-01-06)
+- ✅ `domain/dependency_set.py` - Bundle hash calculation logic (2025-01-06)
+- ✅ `domain/blob_storage.py` - File blob management (2025-01-06)
+- [ ] `domain/cache_repository.py` - Repository interface
 
 #### Infrastructure Layer
-- [ ] `server/infrastructure/file_system_cache_repository.py` - File system implementation
-- [ ] `server/infrastructure/api_key_validator.py` - API key validation
-- [ ] `server/infrastructure/docker_utils.py` - Docker utilities for version handling
+- [ ] `infrastructure/file_system_cache_repository.py` - File system implementation
+- [ ] `infrastructure/api_key_validator.py` - API key validation
+- [ ] `infrastructure/docker_utils.py` - Docker utilities for version handling
 
 #### Application Layer
 - [ ] DTOs for request/response models
-- [ ] `server/application/handle_cache_request.py` - Request orchestration
+- [ ] `application/handle_cache_request.py` - Request orchestration
 
 #### Interfaces Layer
-- [ ] `server/interfaces/api.py` - FastAPI server setup
+- [ ] `interfaces/api.py` - FastAPI server setup
 - [ ] `/v1/cache` endpoint (POST)
 - [ ] `/download/{bundle_hash}.zip` endpoint (GET)
 
