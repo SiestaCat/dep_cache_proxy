@@ -24,6 +24,10 @@ class ZipUtil:
             zip_path: Path where the ZIP file should be created
             index_data: Dictionary mapping relative paths to file hashes
             blob_storage: BlobStorage instance to read blobs from
+            
+        Raises:
+            OSError: If ZIP creation fails
+            PermissionError: If lacking permissions to write ZIP
         """
         zip_path.parent.mkdir(parents=True, exist_ok=True)
         

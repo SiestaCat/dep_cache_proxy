@@ -138,7 +138,7 @@ async def cache_dependencies(request: CacheRequestDTO):
         if manifest_key in request.files:
             manifest_content = base64.b64decode(request.files[manifest_key])
             
-        if not lockfile_content or not manifest_content:
+        if lockfile_content is None or manifest_content is None:
             raise ValueError("Missing required files in request")
             
     except ValueError as e:

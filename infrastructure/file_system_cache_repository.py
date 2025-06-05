@@ -28,8 +28,8 @@ class FileSystemCacheRepository(CacheRepository):
         self.blob_storage = BlobStorage(self.objects_dir)
         self.zip_util = ZipUtil()
     
-    def store_dependency_set(self, dependency_set: DependencySet) -> None:
-        """Store a dependency set in the cache."""
+    def store_dependency_set(self, dependency_set: DependencySet) -> str:
+        """Store a dependency set in the cache and return bundle hash."""
         with self._lock:
             bundle_hash = dependency_set.calculate_bundle_hash()
             index_data = {}
@@ -45,6 +45,8 @@ class FileSystemCacheRepository(CacheRepository):
             
             # Save index with proper naming
             self.save_index(bundle_hash, manager, manager_version, index_data)
+            
+            return bundle_hash
     
     def _get_manager_version(self, dependency_set: DependencySet) -> str:
         """Extract manager version string from dependency set."""
@@ -80,14 +82,22 @@ class FileSystemCacheRepository(CacheRepository):
         # Find any index file starting with bundle_hash
         for index_file in pattern_dir.glob(f"{bundle_hash}.*"):
             if index_file.is_file() and index_file.suffix == ".index":
-                with open(index_file, 'r') as f:
-                    return json.load(f)
+                try:
+                    with open(index_file, 'r') as f:
+                        return json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    # Handle corrupted or unreadable index files
+                    continue
         
         # Fallback to legacy path for compatibility
         legacy_path = self._get_legacy_index_path(bundle_hash)
         if legacy_path.exists():
-            with open(legacy_path, 'r') as f:
-                return json.load(f)
+            try:
+                with open(legacy_path, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                # Handle corrupted or unreadable index files
+                pass
         
         return None
     
@@ -106,16 +116,21 @@ class FileSystemCacheRepository(CacheRepository):
     
     def get_blob(self, blob_hash: str) -> Optional[bytes]:
         """Retrieve a file blob by its hash."""
+        # First try the direct path (for compatibility with store_blob)
+        blob_path = self._get_blob_path(blob_hash)
+        if blob_path.exists():
+            return blob_path.read_bytes()
+        
+        # Fall back to blob storage
         return self.blob_storage.get_blob(blob_hash)
     
     def store_blob(self, blob_hash: str, content: bytes) -> None:
         """Store a file blob with its hash."""
-        # The blob_hash parameter is ignored since BlobStorage calculates its own hash
-        # This is for compatibility with the interface
-        actual_hash = self.blob_storage.store_blob(content)
-        if actual_hash != blob_hash:
-            # Log warning if hashes don't match (in production code)
-            pass
+        # For compatibility with tests that expect to store with a specific hash
+        blob_path = self._get_blob_path(blob_hash)
+        if not blob_path.exists():
+            blob_path.parent.mkdir(parents=True, exist_ok=True)
+            blob_path.write_bytes(content)
     
     def save_blob(self, file_hash: str, content: bytes) -> None:
         """Alias for store_blob() to maintain compatibility."""
@@ -129,12 +144,17 @@ class FileSystemCacheRepository(CacheRepository):
                 return None
             
             bundle_path = self._get_bundle_path(bundle_hash)
-            bundle_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Use ZipUtil to create ZIP from blobs
-            self.zip_util.create_zip_from_blobs(bundle_path, index_data, self.blob_storage)
-            
-            return bundle_path
+            try:
+                bundle_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Use ZipUtil to create ZIP from blobs
+                self.zip_util.create_zip_from_blobs(bundle_path, index_data, self.blob_storage)
+                
+                return bundle_path
+            except (OSError, PermissionError):
+                # Handle file system errors gracefully
+                return None
     
     def get_bundle_zip_path(self, bundle_hash: str) -> Optional[Path]:
         """Get the path to a bundle's ZIP file if it exists."""

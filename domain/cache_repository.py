@@ -13,9 +13,9 @@ class CacheRepository(ABC):
     """
     
     @abstractmethod
-    def store_dependency_set(self, dependency_set: DependencySet) -> None:
+    def store_dependency_set(self, dependency_set: DependencySet) -> str:
         """
-        Store a dependency set in the cache.
+        Store a dependency set in the cache and return bundle hash.
         
         This should:
         1. Store all individual file blobs in the objects directory
@@ -24,6 +24,9 @@ class CacheRepository(ABC):
         
         Args:
             dependency_set: The dependency set to store
+            
+        Returns:
+            The bundle hash of the stored dependency set
             
         Raises:
             IOError: If storage operations fail

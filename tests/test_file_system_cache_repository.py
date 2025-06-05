@@ -310,7 +310,7 @@ class TestFileSystemCacheRepositoryEdgeCases:
         # Verify index contains all files with correct format
         index = repo.get_index(bundle_hash)
         assert index is not None
-        assert len(index['files']) == 3
+        assert len(index) == 3
     
     def test_generate_bundle_zip_with_permission_error(self, repo, monkeypatch):
         """Test bundle generation when file permissions prevent reading."""
@@ -325,14 +325,15 @@ class TestFileSystemCacheRepositoryEdgeCases:
         
         bundle_hash = repo.store_dependency_set(dep_set)
         
-        # Mock open to raise permission error
-        original_open = open
-        def mock_open(path, mode='r', *args, **kwargs):
-            if 'bundles' in str(path) and mode == 'wb':
+        # Mock ZipFile to raise permission error
+        import zipfile
+        original_zipfile = zipfile.ZipFile
+        def mock_zipfile(path, *args, **kwargs):
+            if 'bundles' in str(path):
                 raise PermissionError("No write permission")
-            return original_open(path, mode, *args, **kwargs)
+            return original_zipfile(path, *args, **kwargs)
         
-        monkeypatch.setattr('builtins.open', mock_open)
+        monkeypatch.setattr('zipfile.ZipFile', mock_zipfile)
         
         # Should handle permission error gracefully
         result = repo.generate_bundle_zip(bundle_hash)
@@ -367,11 +368,11 @@ class TestFileSystemCacheRepositoryEdgeCases:
         bundle_path.write_bytes(b'old bundle')
         os.utime(bundle_path, (old_time, old_time))
         
-        # Mock os.remove to raise error
-        def mock_remove(path):
+        # Mock Path.unlink to raise error
+        def mock_unlink(self):
             raise OSError("Cannot remove file")
         
-        monkeypatch.setattr('os.remove', mock_remove)
+        monkeypatch.setattr(Path, 'unlink', mock_unlink)
         
         # Should handle removal error gracefully (method returns None)
         repo.cleanup_old_bundles(30 * 24 * 60 * 60)  # 30 days in seconds
