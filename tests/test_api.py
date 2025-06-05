@@ -7,7 +7,7 @@ import json
 import base64
 
 from interfaces.api import app, initialize_app, Config
-from application.dtos import CacheResponse
+from application.dtos import CacheResponse, InstallationResult, FileData
 
 
 class TestAPI:
@@ -175,6 +175,78 @@ class TestAPI:
         response = client.get("/download/nonexistent.zip")
         assert response.status_code == 404
         assert response.json()['detail'] == 'Bundle not found'
+    
+    def test_cache_request_with_real_api_version_format(self, temp_cache_dir):
+        """Test cache request with actual API version format (node/npm keys)."""
+        # Initialize app with supported versions
+        test_app = initialize_app(
+            cache_dir=temp_cache_dir,
+            supported_versions={
+                'npm': [
+                    {'runtime': '14.20.0', 'package_manager': '6.14.13'},
+                    {'runtime': '16.15.0', 'package_manager': '8.5.0'}
+                ]
+            },
+            is_public=True
+        )
+        
+        # Create a pre-existing bundle to test version validation with cache hit
+        bundle_hash = 'a5cb864746fb36608c41186cf3322bcc3357eaa1512daa34a04c55df1bef59f3'
+        bundles_dir = os.path.join(temp_cache_dir, 'bundles', bundle_hash[:2], bundle_hash[2:4])
+        os.makedirs(bundles_dir, exist_ok=True)
+        
+        # Create indexes directory 
+        indexes_dir = os.path.join(temp_cache_dir, 'indexes', bundle_hash[:2], bundle_hash[2:4])
+        os.makedirs(indexes_dir, exist_ok=True)
+        
+        # Create a dummy ZIP file
+        zip_path = os.path.join(bundles_dir, f'{bundle_hash}.zip')
+        with open(zip_path, 'wb') as f:
+            f.write(b'PK\x03\x04')  # ZIP file header
+            
+        # Create a dummy index file
+        index_path = os.path.join(indexes_dir, f'{bundle_hash}.npm.14.20.0_6.14.13.index')
+        with open(index_path, 'w') as f:
+            json.dump({'files': {}}, f)
+        
+        with TestClient(test_app) as client:
+            # Test with supported version using API format keys
+            response = client.post("/v1/cache", json={
+                'manager': 'npm',
+                'hash': 'a5cb864746fb36608c41186cf3322bcc3357eaa1512daa34a04c55df1bef59f3',
+                'files': {
+                    'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
+                    'package.json': base64.b64encode(b'{"name": "test"}').decode('utf-8')
+                },
+                'versions': {
+                    'node': '14.20.0',  # Using 'node' instead of 'runtime'
+                    'npm': '6.14.13'    # Using 'npm' instead of 'package_manager'
+                }
+            })
+            
+            # Should succeed with supported version (cache hit)
+            assert response.status_code == 200
+            data = response.json()
+            assert 'download_url' in data
+            assert data['cache_hit'] is True  # Should be cache hit since we pre-created the bundle
+            
+            # Test with unsupported version using API format keys
+            response = client.post("/v1/cache", json={
+                'manager': 'npm',
+                'hash': 'test_unsupported_hash',
+                'files': {
+                    'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
+                    'package.json': base64.b64encode(b'{"name": "test"}').decode('utf-8')
+                },
+                'versions': {
+                    'node': '18.0.0',  # Unsupported version
+                    'npm': '9.0.0'     # Unsupported version
+                }
+            })
+            
+            # Should fail with unsupported version
+            assert response.status_code == 400
+            assert 'Unsupported npm version' in response.json()['detail']
     
     def test_api_key_authentication(self):
         """Test API key authentication."""

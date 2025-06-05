@@ -295,6 +295,39 @@ class TestHandleCacheRequest:
         # Unknown manager
         assert not handler._is_version_supported('unknown', {'runtime': '1.0.0'})
     
+    def test_version_support_with_api_format(self, handler):
+        """Test version support with actual API request format (node/npm keys)."""
+        # Test npm with node/npm keys (as sent by API)
+        assert handler._is_version_supported('npm', {'node': '14.17.0', 'npm': '6.14.13'})
+        assert not handler._is_version_supported('npm', {'node': '18.0.0', 'npm': '9.0.0'})
+        
+        # Test yarn with node/yarn keys (need to add yarn to supported versions first)
+        handler.supported_versions['yarn'] = [
+            {'runtime': '14.17.0', 'package_manager': '1.22.0'}
+        ]
+        assert handler._is_version_supported('yarn', {'node': '14.17.0', 'yarn': '1.22.0'})
+        
+        # Test composer with php key
+        handler.supported_versions['composer'] = [{'runtime': '8.1.0'}]
+        assert handler._is_version_supported('composer', {'php': '8.1.0'})
+        assert not handler._is_version_supported('composer', {'php': '7.0.0'})
+    
+    def test_version_normalization_edge_cases(self, handler):
+        """Test edge cases in version normalization."""
+        # Mixed format (should still work)
+        assert handler._is_version_supported('npm', {'node': '14.17.0', 'package_manager': '6.14.13'})
+        
+        # Missing version info
+        assert not handler._is_version_supported('npm', {'node': '14.17.0'})  # Missing npm version
+        assert not handler._is_version_supported('npm', {})  # Empty versions
+        
+        # Extra fields should be ignored
+        assert handler._is_version_supported('npm', {
+            'node': '14.17.0', 
+            'npm': '6.14.13',
+            'extra': 'ignored'
+        })
+    
     def test_determine_installation_method_native(self, handler):
         """Test determining native installation method."""
         method = handler._determine_installation_method(
@@ -321,4 +354,73 @@ class TestHandleCacheRequest:
             handler._determine_installation_method(
                 'npm', 
                 {'runtime': '18.0.0', 'package_manager': '9.0.0'}  # Unsupported
+            )
+    
+    @patch('application.handle_cache_request.DependencySet')
+    def test_cache_request_with_api_format_versions(self, mock_dep_set_class, handler, 
+                                                   mock_cache_repository, mock_installer_factory):
+        """Test handling cache request with API format versions (node/npm keys)."""
+        # Arrange
+        request = CacheRequest(
+            manager='npm',
+            versions={'node': '14.17.0', 'npm': '6.14.13'},  # API format
+            lockfile_content=b'lockfile content',
+            manifest_content=b'manifest content'
+        )
+        
+        expected_hash = 'api-format-hash'
+        mock_cache_repository.has_bundle.return_value = False
+        
+        # Mock installer
+        mock_installer = Mock(spec=DependencyInstaller)
+        mock_installer.lockfile_name = 'package-lock.json'
+        mock_installer.manifest_name = 'package.json'
+        mock_installer.output_folder = 'node_modules'
+        mock_installer.install.return_value = InstallationResult(
+            success=True,
+            files=[FileData('test/file.js', b'content')],
+            error_message=None
+        )
+        mock_installer_factory.create_installer.return_value = mock_installer
+        
+        # Mock DependencySet
+        mock_dep_set = Mock()
+        mock_dep_set.calculate_bundle_hash.return_value = expected_hash
+        mock_dep_set_class.return_value = mock_dep_set
+        
+        # Act
+        response = handler.handle(request)
+        
+        # Assert
+        assert response.bundle_hash == expected_hash
+        assert response.is_cache_hit is False
+        
+        # Verify the installer was called with the original API format versions
+        mock_installer_factory.create_installer.assert_called_with(
+            'npm', {'node': '14.17.0', 'npm': '6.14.13'}
+        )
+    
+    def test_determine_installation_method_with_api_format(self, handler, mock_docker_utils):
+        """Test installation method determination with API format versions."""
+        # Native installation with API format
+        method = handler._determine_installation_method(
+            'npm', 
+            {'node': '14.17.0', 'npm': '6.14.13'}  # API format
+        )
+        assert method == 'native'
+        
+        # Docker required with API format (handler has use_docker_on_version_mismatch=True)
+        mock_docker_utils.is_available.return_value = True
+        method = handler._determine_installation_method(
+            'npm', 
+            {'node': '18.0.0', 'npm': '9.0.0'}  # Unsupported in API format
+        )
+        assert method == 'docker'
+        
+        # Test error when Docker is not available
+        handler.use_docker_on_version_mismatch = False
+        with pytest.raises(ValueError, match='Unsupported npm version'):
+            handler._determine_installation_method(
+                'npm', 
+                {'node': '18.0.0', 'npm': '9.0.0'}  # Unsupported in API format
             )

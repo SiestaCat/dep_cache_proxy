@@ -113,12 +113,22 @@ class HandleCacheRequest:
         kwargs = {}
         
         if manager in ('npm', 'yarn'):
-            if 'runtime' in versions:
+            # Handle both API format (node/npm) and internal format (runtime/package_manager)
+            if 'node' in versions:
+                kwargs['node_version'] = versions['node']
+            elif 'runtime' in versions:
                 kwargs['node_version'] = versions['runtime']
-            if 'package_manager' in versions:
+                
+            if 'npm' in versions:
+                kwargs['npm_version'] = versions['npm']
+            elif 'yarn' in versions:
+                kwargs['npm_version'] = versions['yarn']  # yarn also uses npm_version in DependencySet
+            elif 'package_manager' in versions:
                 kwargs['npm_version'] = versions['package_manager']
         elif manager == 'composer':
-            if 'runtime' in versions:
+            if 'php' in versions:
+                kwargs['php_version'] = versions['php']
+            elif 'runtime' in versions:
                 kwargs['php_version'] = versions['runtime']
         
         return kwargs
@@ -133,29 +143,42 @@ class HandleCacheRequest:
         # Convert request versions to the expected format
         normalized_versions = {}
         if manager in ('npm', 'yarn'):
-            # Map node -> runtime, npm -> package_manager
+            # Map node -> runtime, npm/yarn -> package_manager
             if 'node' in versions:
                 normalized_versions['runtime'] = versions['node']
+            elif 'runtime' in versions:
+                normalized_versions['runtime'] = versions['runtime']
+                
             if 'npm' in versions:
                 normalized_versions['package_manager'] = versions['npm']
             elif 'yarn' in versions:
                 normalized_versions['package_manager'] = versions['yarn']
+            elif 'package_manager' in versions:
+                normalized_versions['package_manager'] = versions['package_manager']
         elif manager == 'composer':
             # Map php -> runtime
             if 'php' in versions:
                 normalized_versions['runtime'] = versions['php']
+            elif 'runtime' in versions:
+                normalized_versions['runtime'] = versions['runtime']
         else:
             # For other managers, use as-is
             normalized_versions = versions
         
         # Now check against supported versions
         for supported in supported_list:
-            # Check if all version fields match
+            # Check if all required fields are present and match
             match = True
-            for key, value in normalized_versions.items():
-                if supported.get(key) != value:
+            
+            # First check if all required fields from supported version are present
+            for key in supported.keys():
+                if key not in normalized_versions:
                     match = False
                     break
+                if supported[key] != normalized_versions.get(key):
+                    match = False
+                    break
+            
             if match:
                 return True
         
