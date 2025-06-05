@@ -128,7 +128,8 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 - `manager` (string): Package manager (npm, composer, etc.)
 - `hash` (string): Pre-calculated bundle hash
 - `versions` (string): JSON string with version information
-- `file[]` (file): Array of files - manifest (required) and lockfile (optional)
+- `file` (file): Multiple file uploads - manifest (required) and lockfile (optional)
+  - Use multiple `-F "file=@filename"` parameters in curl
 - `custom_args` (string, optional): JSON array of custom arguments for the package manager
 
 **Response (200 OK):**
@@ -157,8 +158,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=test-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "file[]=@package.json" \
-  -F "file[]=@package-lock.json"
+  -F "file=@package.json" \
+  -F "file=@package-lock.json"
 ```
 
 2. Authenticated server:
@@ -173,8 +174,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=test-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "file[]=@package.json" \
-  -F "file[]=@package-lock.json"
+  -F "file=@package.json" \
+  -F "file=@package-lock.json"
 ```
 
 3. Composer example:
@@ -201,8 +202,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=composer" \
   -F "hash=composer-bundle-hash-67890" \
   -F 'versions={"php":"8.1.0"}' \
-  -F "file[]=@composer.json" \
-  -F "file[]=@composer.lock"
+  -F "file=@composer.json" \
+  -F "file=@composer.lock"
 ```
 
 4. npm without lockfile (will run npm install):
@@ -224,7 +225,7 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=npm-no-lock-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "file[]=@package.json"
+  -F "file=@package.json"
 ```
 
 5. Composer without lockfile (always optional):
@@ -244,7 +245,7 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=composer" \
   -F "hash=composer-no-lock-hash-67890" \
   -F 'versions={"php":"8.1.0"}' \
-  -F "file[]=@composer.json"
+  -F "file=@composer.json"
 ```
 
 6. Using custom arguments:
@@ -256,8 +257,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "hash=composer-no-dev-hash-12345" \
   -F 'versions={"php":"8.1.0"}' \
   -F 'custom_args=["--no-dev"]' \
-  -F "file[]=@composer.json" \
-  -F "file[]=@composer.lock"
+  -F "file=@composer.json" \
+  -F "file=@composer.lock"
 
 # Example: npm with --production flag
 curl -X POST http://localhost:8080/v1/cache \
@@ -266,8 +267,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "hash=npm-production-hash-67890" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
   -F 'custom_args=["--production"]' \
-  -F "file[]=@package.json" \
-  -F "file[]=@package-lock.json"
+  -F "file=@package.json" \
+  -F "file=@package-lock.json"
 
 # Example: Multiple custom arguments
 curl -X POST http://localhost:8080/v1/cache \
@@ -276,8 +277,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "hash=composer-custom-hash-11111" \
   -F 'versions={"php":"8.1.0"}' \
   -F 'custom_args=["--no-dev","--verbose"]' \
-  -F "file[]=@composer.json" \
-  -F "file[]=@composer.lock"
+  -F "file=@composer.json" \
+  -F "file=@composer.lock"
 ```
 
 ### GET /download/{bundle_hash}.zip
@@ -391,8 +392,8 @@ RESPONSE=$(curl -s -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=$BUNDLE_HASH" \
   -F "versions=$VERSIONS_JSON" \
-  -F "file[]=@package.json" \
-  -F "file[]=@package-lock.json")
+  -F "file=@package.json" \
+  -F "file=@package-lock.json")
 
 echo "Server response: $RESPONSE"
 
@@ -426,8 +427,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=secure-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "file[]=@package.json" \
-  -F "file[]=@package-lock.json"
+  -F "file=@package.json" \
+  -F "file=@package-lock.json"
 ```
 
 ## Cache Storage Structure
