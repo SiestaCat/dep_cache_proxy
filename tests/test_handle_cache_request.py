@@ -121,6 +121,7 @@ class TestHandleCacheRequest:
         mock_dep_set_for_hash.calculate_bundle_hash.return_value = expected_hash
         
         mock_dep_set_for_store = Mock()
+        mock_dep_set_for_store.manager = 'npm'
         mock_dep_set_for_store.files = [
             DependencyFile('foo/index.js', b'console.log("foo")'),
             DependencyFile('bar/index.js', b'console.log("bar")')
@@ -145,7 +146,9 @@ class TestHandleCacheRequest:
         mock_installer.install.assert_called_once()
         
         # Verify files were stored
-        mock_cache_repository.store_dependency_set.assert_called_once()
+        # The implementation stores individual blobs and creates index
+        assert mock_cache_repository.store_blob.call_count == 2  # Two files
+        mock_cache_repository.save_index.assert_called_once()
         mock_cache_repository.generate_bundle_zip.assert_called_once_with(expected_hash)
     
     @patch('application.handle_cache_request.DependencySet')
@@ -185,7 +188,11 @@ class TestHandleCacheRequest:
         mock_dep_set_for_hash.calculate_bundle_hash.return_value = expected_hash
         
         mock_dep_set_for_store = Mock()
-        mock_dep_set_for_store.files = []
+        mock_dep_set_for_store.manager = 'npm'
+        mock_dep_set_for_store.files = [
+            DependencyFile('foo/index.js', b'console.log("foo")'),
+            DependencyFile('bar/index.js', b'console.log("bar")')
+        ]
         mock_dep_set_for_store.to_index_dict.return_value = {'files': {}}
         
         mock_dep_set_class.side_effect = [mock_dep_set_for_hash, mock_dep_set_for_store]
@@ -201,7 +208,9 @@ class TestHandleCacheRequest:
         mock_docker_utils.install_with_docker.assert_called_once()
         
         # Verify files were stored
-        mock_cache_repository.store_dependency_set.assert_called_once()
+        # The implementation stores individual blobs and creates index
+        assert mock_cache_repository.store_blob.call_count == 2  # Two files
+        mock_cache_repository.save_index.assert_called_once()
         mock_cache_repository.generate_bundle_zip.assert_called_once_with(expected_hash)
     
     def test_installation_failure(self, handler, mock_cache_repository, mock_installer_factory):
@@ -292,8 +301,8 @@ class TestHandleCacheRequest:
         # Unsupported version
         assert not handler._is_version_supported('npm', {'runtime': '18.0.0', 'package_manager': '9.0.0'})
         
-        # Unknown manager
-        assert not handler._is_version_supported('unknown', {'runtime': '1.0.0'})
+        # Unknown manager - now returns True since no versions are configured
+        assert handler._is_version_supported('unknown', {'runtime': '1.0.0'})
     
     def test_version_support_with_api_format(self, handler):
         """Test version support with actual API request format (node/npm keys)."""
@@ -347,6 +356,66 @@ class TestHandleCacheRequest:
         assert method == 'docker'
     
     def test_determine_installation_method_error(self, handler, mock_docker_utils):
+        """Test determining installation method when Docker is not available."""
+        mock_docker_utils.is_available.return_value = False
+        
+        with pytest.raises(ValueError, match='Unsupported npm version'):
+            handler._determine_installation_method(
+                'npm', 
+                {'runtime': '18.0.0', 'package_manager': '9.0.0'}  # Unsupported
+            )
+    
+    def test_empty_supported_versions(self, mock_cache_repository, mock_installer_factory, mock_docker_utils):
+        """Test handler with empty supported versions (all versions accepted)."""
+        # Create handler with empty supported versions
+        handler = HandleCacheRequest(
+            cache_repository=mock_cache_repository,
+            installer_factory=mock_installer_factory,
+            docker_utils=mock_docker_utils,
+            supported_versions={},  # Empty - should accept any version
+            use_docker_on_version_mismatch=True
+        )
+        
+        # Any version should be supported when no versions are configured
+        assert handler._is_version_supported('npm', {'runtime': '18.0.0', 'package_manager': '9.0.0'})
+        assert handler._is_version_supported('composer', {'runtime': '7.0.0'})
+        
+        # Should use native installation for any version
+        method = handler._determine_installation_method(
+            'npm', 
+            {'runtime': '99.99.99', 'package_manager': '99.99.99'}
+        )
+        assert method == 'native'
+    
+    def test_missing_manager_supported_versions(self, mock_cache_repository, mock_installer_factory, mock_docker_utils):
+        """Test handler when supported versions for a specific manager are not configured."""
+        # Create handler with only npm supported versions
+        handler = HandleCacheRequest(
+            cache_repository=mock_cache_repository,
+            installer_factory=mock_installer_factory,
+            docker_utils=mock_docker_utils,
+            supported_versions={
+                'npm': [
+                    {'runtime': '14.17.0', 'package_manager': '6.14.13'}
+                ]
+                # composer is not configured
+            },
+            use_docker_on_version_mismatch=True
+        )
+        
+        # NPM should work as configured
+        assert handler._is_version_supported('npm', {'runtime': '14.17.0', 'package_manager': '6.14.13'})
+        assert not handler._is_version_supported('npm', {'runtime': '18.0.0', 'package_manager': '9.0.0'})
+        
+        # Composer should accept any version since it's not configured
+        assert handler._is_version_supported('composer', {'runtime': '8.1.0'})
+        assert handler._is_version_supported('composer', {'runtime': '7.0.0'})
+        
+        # Should use native installation for composer
+        method = handler._determine_installation_method('composer', {'runtime': '7.0.0'})
+        assert method == 'native'
+    
+    def test_determine_installation_method_error(self, handler, mock_docker_utils):
         """Test error when no installation method is available."""
         handler.use_docker_on_version_mismatch = False
         
@@ -384,9 +453,16 @@ class TestHandleCacheRequest:
         mock_installer_factory.create_installer.return_value = mock_installer
         
         # Mock DependencySet
-        mock_dep_set = Mock()
-        mock_dep_set.calculate_bundle_hash.return_value = expected_hash
-        mock_dep_set_class.return_value = mock_dep_set
+        mock_dep_set_for_hash = Mock()
+        mock_dep_set_for_hash.calculate_bundle_hash.return_value = expected_hash
+        
+        mock_dep_set_for_store = Mock()
+        mock_dep_set_for_store.manager = 'npm'
+        mock_dep_set_for_store.files = [
+            DependencyFile('test/file.js', b'content')
+        ]
+        
+        mock_dep_set_class.side_effect = [mock_dep_set_for_hash, mock_dep_set_for_store]
         
         # Act
         response = handler.handle(request)

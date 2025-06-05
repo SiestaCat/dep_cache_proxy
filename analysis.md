@@ -119,8 +119,8 @@ This analysis documents the design of **DepCacheProxy** with the following prior
 
    * `<port>` (HTTP port).
    * `--cache_dir=<CACHE_DIR>` (base directory for cache).
-   * `--supported-versions-node=<NODE_VER1>:<NPM_VER1>,<NODE_VER2>:<NPM_VER2>,...`.
-   * `--supported-versions-php=<PHP_VER1>,<PHP_VER2>,...`.
+   * `--supported-versions-node=<NODE_VER1>:<NPM_VER1>,<NODE_VER2>:<NPM_VER2>,...` (optional; if not specified, any version is supported).
+   * `--supported-versions-php=<PHP_VER1>,<PHP_VER2>,...` (optional; if not specified, any version is supported).
    * `--use-docker-on-version-mismatch` (boolean; use Docker if version unsupported).
    * `--is_public` (boolean; default `false`).
    * `--api-keys=<KEY1>,<KEY2>,...` (required if `--is_public=false`).
@@ -188,9 +188,10 @@ This analysis documents the design of **DepCacheProxy** with the following prior
 
 7. **FR7**: Version validation on server:
 
-   * For `npm`: the tuple `(node_version, npm_version)` must exist in `supported_versions_node`.
-   * For `composer`: `php_version` must exist in `supported_versions_php`.
-   * If it doesn’t match:
+   * For `npm`: if `--supported-versions-node` is specified, the tuple `(node_version, npm_version)` must exist in `supported_versions_node`.
+   * For `composer`: if `--supported-versions-php` is specified, `php_version` must exist in `supported_versions_php`.
+   * If no supported versions are specified for a package manager, any version is accepted and installation will be performed using the current manager version of the host.
+   * If versions are specified and there's a mismatch:
 
      * If `--use-docker-on-version-mismatch=false`: respond `400 Bad Request`.
      * If `--use-docker-on-version-mismatch=true`: use Docker to install dependencies in a container with the requested version.
@@ -392,8 +393,8 @@ dep_cache_proxy_client <endpoint_url> <manager> \
 ```bash
 dep_cache_proxy_server <port> \
   --cache_dir=<CACHE_DIR> \
-  --supported-versions-node=<NODE_VER1>:<NPM_VER1>,<NODE_VER2>:<NPM_VER2>,... \
-  --supported-versions-php=<PHP_VER1>,<PHP_VER2>,... \
+  [--supported-versions-node=<NODE_VER1>:<NPM_VER1>,<NODE_VER2>:<NPM_VER2>,...] \
+  [--supported-versions-php=<PHP_VER1>,<PHP_VER2>,...] \
   [--use-docker-on-version-mismatch] \
   [--is_public] \
   [--api-keys=<KEY1>,<KEY2>,...]
@@ -401,8 +402,8 @@ dep_cache_proxy_server <port> \
 
 * `<port>`: integer (e.g., `8080`).
 * `--cache_dir`: base cache directory.
-* `--supported-versions-node`: e.g., `14.20.0:6.14.13,16.15.0:8.5.0`.
-* `--supported-versions-php`: e.g., `8.1.0,7.4.0`.
+* `--supported-versions-node`: e.g., `14.20.0:6.14.13,16.15.0:8.5.0` (optional; if not specified, any Node/NPM version is supported).
+* `--supported-versions-php`: e.g., `8.1.0,7.4.0` (optional; if not specified, any PHP version is supported).
 * `--use-docker-on-version-mismatch`: use Docker to install dependencies if version unsupported.
 * `--is_public`: run as a public server (no API key).
 * `--api-keys`: comma-separated list of valid keys (required if `--is_public=false`).
@@ -695,9 +696,10 @@ Under `<cache_dir>`, there are three main subfolders:
    * **Validate Manager** (`npm` or `composer`).
    * **Validate Versions**:
 
-     * For `npm`: `(node_version, npm_version)` must be in `supported_versions_node`.
-     * For `composer`: `php_version` must be in `supported_versions_php`.
-     * If there’s a mismatch:
+     * For `npm`: if `supported_versions_node` is provided, `(node_version, npm_version)` must be in `supported_versions_node`.
+     * For `composer`: if `supported_versions_php` is provided, `php_version` must be in `supported_versions_php`.
+     * If no supported versions are specified for a package manager, any version is accepted.
+     * If versions are specified and there's a mismatch:
 
        * If `use_docker_on_version_mismatch=false`: → `400 Bad Request: "Unsupported version"`.
        * If `use_docker_on_version_mismatch=true`: → set `use_docker = True`.
@@ -1049,12 +1051,16 @@ class HandleCacheRequest:
             if not node_ver or not npm_ver:
                 raise RuntimeError("Missing Node/NPM versions")
             manager_version = f"{node_ver}_{npm_ver}"
-            supported_npm_ver = self.supported_versions_node.get(node_ver)
-            if supported_npm_ver != npm_ver:
-                if not self.use_docker:
-                    raise ValueError("Node/NPM version not supported")
+            # If no supported versions are specified, accept any version
+            if self.supported_versions_node:
+                supported_npm_ver = self.supported_versions_node.get(node_ver)
+                if supported_npm_ver != npm_ver:
+                    if not self.use_docker:
+                        raise ValueError("Node/NPM version not supported")
+                    else:
+                        use_docker_exec = True
                 else:
-                    use_docker_exec = True
+                    use_docker_exec = False
             else:
                 use_docker_exec = False
         elif manager == "composer":
@@ -1062,11 +1068,15 @@ class HandleCacheRequest:
             if not php_ver:
                 raise RuntimeError("Missing PHP version")
             manager_version = php_ver
-            if php_ver not in self.supported_versions_php:
-                if not self.use_docker:
-                    raise ValueError("PHP version not supported")
+            # If no supported versions are specified, accept any version
+            if self.supported_versions_php:
+                if php_ver not in self.supported_versions_php:
+                    if not self.use_docker:
+                        raise ValueError("PHP version not supported")
+                    else:
+                        use_docker_exec = True
                 else:
-                    use_docker_exec = True
+                    use_docker_exec = False
             else:
                 use_docker_exec = False
         else:
@@ -1200,12 +1210,12 @@ def parse_args():
     parser.add_argument("port", type=int, help="HTTP port to listen on (e.g., 8080)")
     parser.add_argument("--cache_dir", type=str, required=True, help="Base cache directory")
     parser.add_argument(
-        "--supported-versions-node", type=str, required=True,
-        help="Pairs node_version:npm_version separated by commas, e.g. 14.20.0:6.14.13,16.15.0:8.5.0"
+        "--supported-versions-node", type=str, required=False,
+        help="Pairs node_version:npm_version separated by commas, e.g. 14.20.0:6.14.13,16.15.0:8.5.0 (optional)"
     )
     parser.add_argument(
-        "--supported-versions-php", type=str, required=True,
-        help="List of PHP versions separated by commas, e.g. 8.1.0,7.4.0"
+        "--supported-versions-php", type=str, required=False,
+        help="List of PHP versions separated by commas, e.g. 8.1.0,7.4.0 (optional)"
     )
     parser.add_argument(
         "--use-docker-on-version-mismatch",
@@ -1224,11 +1234,14 @@ def main():
     is_public = args.is_public
 
     supported_versions_node = {}
-    for pair in args.supported_versions_node.split(","):
-        node_v, npm_v = pair.split(":")
-        supported_versions_node[node_v.strip()] = npm_v.strip()
+    if args.supported_versions_node:
+        for pair in args.supported_versions_node.split(","):
+            node_v, npm_v = pair.split(":")
+            supported_versions_node[node_v.strip()] = npm_v.strip()
 
-    supported_versions_php = [v.strip() for v in args.supported_versions_php.split(",")]
+    supported_versions_php = []
+    if args.supported_versions_php:
+        supported_versions_php = [v.strip() for v in args.supported_versions_php.split(",")]
 
     api_keys = []
     if not is_public:

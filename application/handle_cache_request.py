@@ -137,9 +137,14 @@ class HandleCacheRequest:
     def _is_version_supported(self, manager: str, versions: Dict[str, str]) -> bool:
         """Check if the given versions are supported."""
         if manager not in self.supported_versions:
-            return False
+            # If no supported versions are configured for this manager, accept any version
+            return True
         
         supported_list = self.supported_versions[manager]
+        
+        # If the list is empty, accept any version
+        if not supported_list:
+            return True
         
         # Convert request versions to the expected format
         normalized_versions = {}
