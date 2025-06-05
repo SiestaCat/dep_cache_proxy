@@ -154,77 +154,78 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 
 **Example curl requests:**
 
+> **Note**: For large files, avoid embedding base64 content directly in the curl command as it can exceed shell argument limits. Use one of the file-based methods shown below.
+
 1. Public server (no authentication):
 ```bash
-# First, create sample files and calculate hash
+# First, create sample files
 echo '{"name": "test-app", "version": "1.0.0"}' > package.json
 echo '{"lockfileVersion": 2}' > package-lock.json
 
-# Encode files to base64
-PACKAGE_JSON_B64=$(base64 -w0 package.json)
-PACKAGE_LOCK_B64=$(base64 -w0 package-lock.json)
+# Create request JSON file
+cat > request.json << EOF
+{
+  "manager": "npm",
+  "hash": "test-bundle-hash-12345",
+  "files": {
+    "package.json": "$(base64 -w0 package.json)",
+    "package-lock.json": "$(base64 -w0 package-lock.json)"
+  },
+  "versions": {
+    "node": "14.20.0",
+    "npm": "6.14.13"
+  }
+}
+EOF
 
 # Make request
 curl -X POST http://localhost:8080/v1/cache \
   -H "Content-Type: application/json" \
-  -d '{
-    "manager": "npm",
-    "hash": "test-bundle-hash-12345",
-    "files": {
-      "package.json": "'$PACKAGE_JSON_B64'",
-      "package-lock.json": "'$PACKAGE_LOCK_B64'"
-    },
-    "versions": {
-      "node": "14.20.0",
-      "npm": "6.14.13"
-    }
-  }'
+  -d @request.json
 ```
 
 2. Authenticated server:
 ```bash
-curl -X POST http://localhost:8080/v1/cache \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer secret-key-1" \
-  -d '{
-    "manager": "npm",
-    "hash": "test-bundle-hash-12345",
-    "files": {
-      "package.json": "'$PACKAGE_JSON_B64'",
-      "package-lock.json": "'$PACKAGE_LOCK_B64'"
+# Using jq for JSON construction (install with: apt-get install jq)
+jq -n \
+  --arg manager "npm" \
+  --arg hash "test-bundle-hash-12345" \
+  --arg pkg_json "$(base64 -w0 package.json)" \
+  --arg pkg_lock "$(base64 -w0 package-lock.json)" \
+  '{
+    manager: $manager,
+    hash: $hash,
+    files: {
+      "package.json": $pkg_json,
+      "package-lock.json": $pkg_lock
     },
-    "versions": {
-      "node": "14.20.0",
-      "npm": "6.14.13"
+    versions: {
+      node: "14.20.0",
+      npm: "6.14.13"
     }
-  }'
+  }' | curl -X POST http://localhost:8080/v1/cache \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer secret-key-1" \
+    -d @-
 ```
 
-3. Composer example:
+3. Composer example (compact for small files):
 ```bash
-# Create composer files
-echo '{"require": {"monolog/monolog": "2.0"}}' > composer.json
-echo '{"content-hash": "test"}' > composer.lock
-
-# Encode to base64
-COMPOSER_JSON_B64=$(base64 -w0 composer.json)
-COMPOSER_LOCK_B64=$(base64 -w0 composer.lock)
-
-# Make request
+# For small files, you can use inline encoding
 curl -X POST http://localhost:8080/v1/cache \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-key-1" \
-  -d '{
-    "manager": "composer",
-    "hash": "composer-bundle-hash-67890",
-    "files": {
-      "composer.json": "'$COMPOSER_JSON_B64'",
-      "composer.lock": "'$COMPOSER_LOCK_B64'"
+  -d "{
+    \"manager\": \"composer\",
+    \"hash\": \"composer-bundle-hash-67890\",
+    \"files\": {
+      \"composer.json\": \"$(echo '{"require": {"monolog/monolog": "2.0"}}' | base64 -w0)\",
+      \"composer.lock\": \"$(echo '{"content-hash": "test"}' | base64 -w0)\"
     },
-    "versions": {
-      "php": "8.1.0"
+    \"versions\": {
+      \"php\": \"8.1.0\"
     }
-  }'
+  }"
 ```
 
 ### GET /download/{bundle_hash}.zip
@@ -330,25 +331,26 @@ EOF
 # For this example, we'll use a static hash
 BUNDLE_HASH="example-bundle-hash-$(date +%s)"
 
-# 4. Encode files to base64
-PACKAGE_JSON_B64=$(base64 -w0 package.json)
-PACKAGE_LOCK_B64=$(base64 -w0 package-lock.json)
+# 4. Create request JSON with base64 encoded files
+cat > request.json << EOF
+{
+  "manager": "npm",
+  "hash": "$BUNDLE_HASH",
+  "files": {
+    "package.json": "$(base64 -w0 package.json)",
+    "package-lock.json": "$(base64 -w0 package-lock.json)"
+  },
+  "versions": {
+    "node": "14.20.0",
+    "npm": "6.14.13"
+  }
+}
+EOF
 
 # 5. Send cache request
 RESPONSE=$(curl -s -X POST http://localhost:8080/v1/cache \
   -H "Content-Type: application/json" \
-  -d '{
-    "manager": "npm",
-    "hash": "'$BUNDLE_HASH'",
-    "files": {
-      "package.json": "'$PACKAGE_JSON_B64'",
-      "package-lock.json": "'$PACKAGE_LOCK_B64'"
-    },
-    "versions": {
-      "node": "14.20.0",
-      "npm": "6.14.13"
-    }
-  }')
+  -d @request.json)
 
 echo "Server response: $RESPONSE"
 
@@ -376,22 +378,25 @@ python main.py 8080 \
   --supported-versions-node=14.20.0:6.14.13 \
   --api-keys=my-secret-key-123,backup-key-456
 
-# Make authenticated request
-curl -X POST http://localhost:8080/v1/cache \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer my-secret-key-123" \
-  -d '{
-    "manager": "npm",
-    "hash": "secure-bundle-hash-12345",
-    "files": {
-      "package.json": "'$(base64 -w0 package.json)'",
-      "package-lock.json": "'$(base64 -w0 package-lock.json)'"
+# Create request with jq (or use the file method from example 1)
+jq -n \
+  --arg pkg_json "$(base64 -w0 package.json)" \
+  --arg pkg_lock "$(base64 -w0 package-lock.json)" \
+  '{
+    manager: "npm",
+    hash: "secure-bundle-hash-12345",
+    files: {
+      "package.json": $pkg_json,
+      "package-lock.json": $pkg_lock
     },
-    "versions": {
-      "node": "14.20.0",
-      "npm": "6.14.13"
+    versions: {
+      node: "14.20.0",
+      npm: "6.14.13"
     }
-  }'
+  }' | curl -X POST http://localhost:8080/v1/cache \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer my-secret-key-123" \
+    -d @-
 ```
 
 ## Cache Storage Structure
