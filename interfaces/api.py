@@ -6,6 +6,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile, Form
+from typing import List as TypingList
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -89,8 +90,7 @@ async def cache_dependencies(
     manager: str = Form(...),
     hash: str = Form(...),
     versions: str = Form(...),
-    lockfile: UploadFile = File(...),
-    manifest: UploadFile = File(...)
+    file: TypingList[UploadFile] = File(...)
 ):
     """
     Process a cache request for dependencies.
@@ -105,8 +105,7 @@ async def cache_dependencies(
     - manager: Package manager (npm, composer, etc.)
     - hash: Pre-calculated bundle hash
     - versions: JSON string with version information
-    - lockfile: Lockfile upload (package-lock.json, composer.lock, etc.)
-    - manifest: Manifest file upload (package.json, composer.json, etc.)
+    - file: Array of files (manifest and optionally lockfile)
     """
     if not config or not cache_repository:
         raise HTTPException(status_code=500, detail="Server not properly configured")
@@ -121,13 +120,54 @@ async def cache_dependencies(
     if manager not in ["npm", "composer", "yarn"]:
         raise HTTPException(status_code=400, detail=f"Unsupported manager: {manager}")
     
-    # Read file contents
+    # Validate we have at least one file
+    if not file or len(file) == 0:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    # Determine expected filenames based on manager
+    manifest_names = {
+        "npm": "package.json",
+        "yarn": "package.json", 
+        "composer": "composer.json"
+    }
+    lockfile_names = {
+        "npm": "package-lock.json",
+        "yarn": "yarn.lock",
+        "composer": "composer.lock"
+    }
+    
+    manifest_name = manifest_names.get(manager)
+    lockfile_name = lockfile_names.get(manager)
+    
+    # Read file contents and identify manifest/lockfile
+    manifest_content = None
+    lockfile_content = None
+    
     try:
-        lockfile_content = await lockfile.read()
-        manifest_content = await manifest.read()
+        for uploaded_file in file:
+            filename = uploaded_file.filename.lower()
+            content = await uploaded_file.read()
+            
+            if filename == manifest_name:
+                manifest_content = content
+            elif filename == lockfile_name:
+                lockfile_content = content
+            else:
+                # For flexibility, also check if filename contains expected patterns
+                if manifest_name and manifest_name in filename:
+                    manifest_content = content
+                elif lockfile_name and lockfile_name in filename:
+                    lockfile_content = content
         
-        if not lockfile_content or not manifest_content:
-            raise ValueError("Empty file content")
+        # Manifest is always required
+        if not manifest_content:
+            raise ValueError(f"Missing required manifest file: {manifest_name}")
+            
+        # For npm, if lockfile is missing, we'll need to run npm install
+        # For composer, lockfile is always optional
+        if not lockfile_content:
+            # This will be handled by the installer
+            lockfile_content = b''  # Empty content signals missing lockfile
             
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error reading files: {str(e)}")

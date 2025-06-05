@@ -671,8 +671,7 @@ Under `<cache_dir>`, there are three main subfolders:
      * `manager`: "npm"
      * `hash`: calculated bundle hash
      * `versions`: JSON string `{"node":"14.20.0","npm":"6.14.13"}`
-     * `lockfile`: file upload of `package.lock`
-     * `manifest`: file upload of `package.json`
+     * `file[]`: array of file uploads (package.json and optionally package-lock.json)
    * Sends `POST https://server:8080/api/v1/cache` with:
      * Headers: `Authorization: Bearer MY_API_KEY`, `Content-Type: multipart/form-data`
      * The multipart form data above.
@@ -683,7 +682,7 @@ Under `<cache_dir>`, there are three main subfolders:
    * **Validate API Key** (if `--is_public=false`).
    * Parse multipart form data:
      * Extract form fields: `manager`, `hash`, `versions` (parse JSON string)
-     * Extract file uploads: `lockfile`, `manifest`
+     * Extract file uploads from `file[]` array and identify manifest/lockfile by filename
    * **Validate Manager** (`npm` or `composer`).
    * **Validate Versions**:
 
@@ -1307,22 +1306,43 @@ The `/v1/cache` endpoint accepts multipart form data with the following fields:
 * `versions` (string): JSON string containing version information - required
   * For `npm`: `{"node": "14.20.0", "npm": "6.14.13"}`
   * For `composer`: `{"php": "8.1.0"}`
-* `lockfile` (file): The lockfile upload - required
-  * For `npm`: `package-lock.json`
-  * For `composer`: `composer.lock`
-* `manifest` (file): The manifest file upload - required
-  * For `npm`: `package.json`
-  * For `composer`: `composer.json`
+* `file[]` (file): Array of files - required
+  * Must include the manifest file (package.json for npm, composer.json for composer)
+  * Lockfile is optional:
+    * For `npm`: package-lock.json (if missing, npm install will be run)
+    * For `composer`: composer.lock (always optional)
 
-Example curl request:
+Example curl requests:
+
+1. npm with lockfile:
 ```bash
 curl -X POST http://localhost:8080/v1/cache \
   -H "Authorization: Bearer API_KEY" \
   -F "manager=npm" \
   -F "hash=ab12cd34ef56..." \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "lockfile=@package-lock.json" \
-  -F "manifest=@package.json"
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
+```
+
+2. npm without lockfile (will run npm install):
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer API_KEY" \
+  -F "manager=npm" \
+  -F "hash=ab12cd34ef56..." \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "file[]=@package.json"
+```
+
+3. composer (lockfile always optional):
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer API_KEY" \
+  -F "manager=composer" \
+  -F "hash=ab12cd34ef56..." \
+  -F 'versions={"php":"8.1.0"}' \
+  -F "file[]=@composer.json"
 ```
 
 ### 9.3 `CacheResponseDTO`

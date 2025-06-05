@@ -88,11 +88,12 @@ class HandleCacheRequest:
             request.manager, request.versions
         )
         
-        # Add lockfile
-        files.append(DependencyFile(
-            installer.lockfile_name,
-            request.lockfile_content
-        ))
+        # Add lockfile only if present
+        if request.lockfile_content:
+            files.append(DependencyFile(
+                installer.lockfile_name,
+                request.lockfile_content
+            ))
         
         # Add manifest
         files.append(DependencyFile(
@@ -210,9 +211,12 @@ class HandleCacheRequest:
                 request.manager, request.versions
             )
             
-            # Write lockfile and manifest
-            (temp_dir / installer.lockfile_name).write_bytes(request.lockfile_content)
+            # Write manifest
             (temp_dir / installer.manifest_name).write_bytes(request.manifest_content)
+            
+            # Write lockfile only if it has content
+            if request.lockfile_content:
+                (temp_dir / installer.lockfile_name).write_bytes(request.lockfile_content)
             
             # Install
             result = installer.install(str(temp_dir))
@@ -239,9 +243,12 @@ class HandleCacheRequest:
                 request.manager, request.versions
             )
             
-            # Write lockfile and manifest
-            (temp_dir / installer.lockfile_name).write_bytes(request.lockfile_content)
+            # Write manifest
             (temp_dir / installer.manifest_name).write_bytes(request.manifest_content)
+            
+            # Write lockfile only if it has content
+            if request.lockfile_content:
+                (temp_dir / installer.lockfile_name).write_bytes(request.lockfile_content)
             
             # Install with Docker
             return self.docker_utils.install_with_docker(

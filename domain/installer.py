@@ -61,8 +61,19 @@ class NpmInstaller(DependencyInstaller):
         self.npm_version = npm_version
     
     def install(self, work_dir: str) -> InstallationResult:
-        """Install npm dependencies using npm ci."""
-        cmd = ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+        """Install npm dependencies using npm ci or npm install."""
+        work_path = Path(work_dir)
+        lockfile_path = work_path / self.lockfile_name
+        
+        # Check if lockfile exists before installation
+        lockfile_existed = lockfile_path.exists() and lockfile_path.stat().st_size > 0
+        
+        if lockfile_existed:
+            # Use npm ci when lockfile is present
+            cmd = ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+        else:
+            # Use npm install when lockfile is missing
+            cmd = ["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]
         
         env = os.environ.copy()
         env["NODE_ENV"] = "production"
@@ -84,6 +95,12 @@ class NpmInstaller(DependencyInstaller):
         
         # Collect installed files
         files = self._collect_files(Path(work_dir) / self.output_folder_name)
+        
+        # If npm install was used (lockfile didn't exist), check if one was generated
+        if not lockfile_existed:
+            if lockfile_path.exists():
+                lockfile_content = lockfile_path.read_bytes()
+                files.append(FileData(self.lockfile_name, lockfile_content))
         
         return InstallationResult(
             success=True,

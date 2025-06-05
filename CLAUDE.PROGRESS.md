@@ -338,3 +338,36 @@ The DepCacheProxy server component has been fully implemented according to the a
 - **All Tests Updated**: Modified test suite to use new multipart API
   - All 86 tests continue to pass with the new implementation
   - Edge cases properly handle multipart validation errors
+
+#### 2025-01-06 (API Update - File Array Upload Format)
+- **Updated API Design**: Changed file upload format to use `file[]` array syntax:
+  - Problem: Client requested more flexible file upload format without explicit lockfile/manifest fields
+  - Solution: Modified `/v1/cache` endpoint to accept `file[]` array of files
+  - Changes implemented:
+    1. **API Layer** (`interfaces/api.py`):
+       - Changed from separate `lockfile` and `manifest` parameters to `file: List[UploadFile]`
+       - Added logic to identify files by their filenames (e.g., package.json, package-lock.json)
+       - Made lockfile optional - if missing for npm, will run `npm install` instead of `npm ci`
+       - Composer lockfile is always optional as per original design
+    2. **Domain Layer** (`domain/installer.py`):
+       - Updated NpmInstaller to check if lockfile exists
+       - Uses `npm ci` when lockfile present, `npm install` when missing
+       - When using `npm install`, also collects the generated lockfile in results
+    3. **Application Layer** (`application/handle_cache_request.py`):
+       - Updated to handle empty lockfile content (signals missing lockfile)
+       - Only writes lockfile if content is not empty
+       - Bundle hash calculation excludes missing lockfile
+    4. **Tests** (`tests/test_api.py`):
+       - Updated all test cases to use `file[]` array format
+       - Changed from `files = {'lockfile': ..., 'manifest': ...}` to `files = [('file', ...), ('file', ...)]`
+       - Added new tests for npm without lockfile and composer without lockfile
+       - All 20 API tests pass successfully
+    5. **Documentation**:
+       - Updated README.md with new curl examples using `-F "file[]=@filename"` syntax
+       - Added examples for npm and composer without lockfile
+       - Updated analysis.md to reflect new multipart format with file[] array
+  - Benefits:
+    - More flexible file upload - client can send any combination of files
+    - Lockfile is properly optional, matching real-world usage
+    - npm install can generate lockfile when missing
+    - Cleaner API without hardcoded field names

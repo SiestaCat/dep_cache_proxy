@@ -64,11 +64,11 @@ class TestAPI:
         )
         mock_handler_class.return_value = mock_handler
         
-        # Create multipart form data
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
-        }
+        # Create multipart form data with file[] array
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'manifest content'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'abc123',
@@ -87,10 +87,10 @@ class TestAPI:
     def test_cache_dependencies_validation_error(self, client):
         """Test cache request with validation error."""
         # Create multipart form data with invalid manager
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'manifest content'), 'application/json'))
+        ]
         data = {
             'manager': 'invalid_manager',
             'hash': 'invalid_hash',
@@ -112,11 +112,11 @@ class TestAPI:
         mock_handler.handle.side_effect = Exception("Internal error")
         mock_handler_class.return_value = mock_handler
         
-        # Create multipart form data
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
-        }
+        # Create multipart form data with file[] array
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'manifest content'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'test_hash',
@@ -133,10 +133,10 @@ class TestAPI:
     def test_cache_dependencies_missing_fields(self, client):
         """Test cache request with missing required fields."""
         # Missing manager
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+        ]
         data = {
             'hash': 'test_hash',
             'versions': json.dumps({'runtime': '14.17.0'})
@@ -145,10 +145,10 @@ class TestAPI:
         assert response.status_code == 422
         
         # Missing versions
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'test_hash'
@@ -217,10 +217,10 @@ class TestAPI:
         
         with TestClient(test_app) as client:
             # Test with supported version using API format keys
-            files = {
-                'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-                'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
-            }
+            files = [
+                ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+                ('file', ('package.json', BytesIO(b'{"name": "test"}'), 'application/json'))
+            ]
             data = {
                 'manager': 'npm',
                 'hash': 'a5cb864746fb36608c41186cf3322bcc3357eaa1512daa34a04c55df1bef59f3',
@@ -238,10 +238,10 @@ class TestAPI:
             assert response_data['cache_hit'] is True  # Should be cache hit since we pre-created the bundle
             
             # Test with unsupported version using API format keys
-            files = {
-                'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-                'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
-            }
+            files = [
+                ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+                ('file', ('package.json', BytesIO(b'{"name": "test"}'), 'application/json'))
+            ]
             data = {
                 'manager': 'npm',
                 'hash': 'test_unsupported_hash',
@@ -272,10 +272,10 @@ class TestAPI:
                 response = client.get("/health")  # Health check doesn't require auth
                 assert response.status_code == 200
                 
-                files = {
-                    'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-                    'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-                }
+                files = [
+                    ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+                    ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+                ]
                 data = {
                     'manager': 'npm',
                     'hash': 'test_hash',
@@ -286,10 +286,10 @@ class TestAPI:
                 assert 'Authorization' in response.json()['detail']
                 
                 # Request with invalid API key
-                files = {
-                    'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-                    'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-                }
+                files = [
+                    ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+                    ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+                ]
                 data = {
                     'manager': 'npm',
                     'hash': 'test_hash',
@@ -311,10 +311,10 @@ class TestAPI:
                     )
                     mock_handler_class.return_value = mock_handler
                     
-                    files = {
-                        'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-                        'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-                    }
+                    files = [
+                        ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+                        ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+                    ]
                     data = {
                         'manager': 'npm',
                         'hash': 'test_hash',
@@ -350,10 +350,10 @@ class TestAPI:
         # Simulate uninitialized repository
         mock_repo.__bool__.return_value = False
         
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'content'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'test_hash',
@@ -389,10 +389,10 @@ class TestAPIEdgeCases:
     
     def test_cache_request_with_malformed_json_versions(self, client):
         """Test cache request with invalid JSON in versions field."""
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'lockfile content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'{"name": "test"}'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'test_hash',
@@ -405,10 +405,10 @@ class TestAPIEdgeCases:
     
     def test_cache_request_with_empty_files(self, client):
         """Test cache request with empty file content."""
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b''), 'application/json'),
-            'manifest': ('package.json', BytesIO(b''), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b''), 'application/json')),
+            ('file', ('package.json', BytesIO(b''), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': 'test_hash',
@@ -416,18 +416,72 @@ class TestAPIEdgeCases:
         }
         response = client.post("/v1/cache", data=data, files=files)
         
-        # Should reject empty files
+        # Should reject empty manifest file
         assert response.status_code == 400
-        assert "Empty file content" in response.json()["detail"]
+        assert "Missing required manifest file" in response.json()["detail"]
+    
+    @patch('interfaces.api.HandleCacheRequest')
+    def test_cache_request_without_lockfile_npm(self, mock_handler_class, client):
+        """Test npm cache request without lockfile (should run npm install)."""
+        # Arrange
+        mock_handler = Mock()
+        mock_handler.handle.return_value = CacheResponse(
+            bundle_hash='generated123',
+            download_url='/download/generated123.zip',
+            is_cache_hit=False
+        )
+        mock_handler_class.return_value = mock_handler
+        
+        # Only provide manifest file, no lockfile
+        files = [
+            ('file', ('package.json', BytesIO(b'{"name": "test", "dependencies": {}}'), 'application/json'))
+        ]
+        data = {
+            'manager': 'npm',
+            'hash': 'test_hash_no_lock',
+            'versions': json.dumps({"node": "14.20.0", "npm": "6.14.13"})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
+        
+        # Should succeed - npm install will generate lockfile
+        assert response.status_code == 200
+        response_data = response.json()
+        assert 'download_url' in response_data
+        assert response_data['cache_hit'] is False
+    
+    def test_cache_request_without_lockfile_composer(self, client):
+        """Test composer cache request without lockfile (always optional)."""
+        with patch('interfaces.api.HandleCacheRequest') as mock_handler_class:
+            mock_handler = Mock()
+            mock_handler.handle.return_value = CacheResponse(
+                bundle_hash='composer123',
+                download_url='/download/composer123.zip',
+                is_cache_hit=False
+            )
+            mock_handler_class.return_value = mock_handler
+            
+            # Only provide composer.json, no composer.lock
+            files = [
+                ('file', ('composer.json', BytesIO(b'{"require": {"monolog/monolog": "^2.0"}}'), 'application/json'))
+            ]
+            data = {
+                'manager': 'composer',
+                'hash': 'composer_hash_no_lock',
+                'versions': json.dumps({"php": "8.1.0"})
+            }
+            response = client.post("/v1/cache", data=data, files=files)
+            
+            # Should succeed - composer.lock is always optional
+            assert response.status_code == 200
     
     def test_cache_request_with_very_long_hash(self, client):
         """Test cache request with extremely long hash value."""
         long_hash = "a" * 1000  # 1000 character hash
         
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'{"name": "test"}'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': long_hash,
@@ -442,10 +496,10 @@ class TestAPIEdgeCases:
         """Test cache request with special characters in hash."""
         special_hash = "test/../../../etc/passwd"  # Path traversal attempt
         
-        files = {
-            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
-            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
-        }
+        files = [
+            ('file', ('package-lock.json', BytesIO(b'content'), 'application/json')),
+            ('file', ('package.json', BytesIO(b'{"name": "test"}'), 'application/json'))
+        ]
         data = {
             'manager': 'npm',
             'hash': special_hash,
@@ -463,10 +517,10 @@ class TestAPIEdgeCases:
     
     def test_cache_request_with_unknown_manager(self, client):
         """Test cache request with unknown package manager."""
-        files = {
-            'lockfile': ('unknown.lock', BytesIO(b'content'), 'application/json'),
-            'manifest': ('unknown.json', BytesIO(b'content'), 'application/json')
-        }
+        files = [
+            ('file', ('unknown.lock', BytesIO(b'content'), 'application/json')),
+            ('file', ('unknown.json', BytesIO(b'content'), 'application/json'))
+        ]
         data = {
             'manager': 'unknown_manager',
             'hash': 'test_hash',

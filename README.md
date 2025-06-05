@@ -127,8 +127,7 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 - `manager` (string): Package manager (npm, composer, etc.)
 - `hash` (string): Pre-calculated bundle hash
 - `versions` (string): JSON string with version information
-- `lockfile` (file): Lockfile upload (package-lock.json, composer.lock, etc.)
-- `manifest` (file): Manifest file upload (package.json, composer.json, etc.)
+- `file[]` (file): Array of files - manifest (required) and lockfile (optional)
 
 **Response (200 OK):**
 ```json
@@ -156,8 +155,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=test-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "lockfile=@package-lock.json" \
-  -F "manifest=@package.json"
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
 ```
 
 2. Authenticated server:
@@ -172,8 +171,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=test-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "lockfile=@package-lock.json" \
-  -F "manifest=@package.json"
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
 ```
 
 3. Composer example:
@@ -200,8 +199,50 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=composer" \
   -F "hash=composer-bundle-hash-67890" \
   -F 'versions={"php":"8.1.0"}' \
-  -F "lockfile=@composer.lock" \
-  -F "manifest=@composer.json"
+  -F "file[]=@composer.json" \
+  -F "file[]=@composer.lock"
+```
+
+4. npm without lockfile (will run npm install):
+```bash
+# Create only package.json (no lockfile)
+cat > package.json << 'EOF'
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
+EOF
+
+# Make request with only manifest file
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=npm" \
+  -F "hash=npm-no-lock-hash-12345" \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "file[]=@package.json"
+```
+
+5. Composer without lockfile (always optional):
+```bash
+# Create only composer.json (no lockfile)
+cat > composer.json << 'EOF'
+{
+  "require": {
+    "monolog/monolog": "^2.0"
+  }
+}
+EOF
+
+# Make request with only manifest file
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=composer" \
+  -F "hash=composer-no-lock-hash-67890" \
+  -F 'versions={"php":"8.1.0"}' \
+  -F "file[]=@composer.json"
 ```
 
 ### GET /download/{bundle_hash}.zip
@@ -315,8 +356,8 @@ RESPONSE=$(curl -s -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=$BUNDLE_HASH" \
   -F "versions=$VERSIONS_JSON" \
-  -F "lockfile=@package-lock.json" \
-  -F "manifest=@package.json")
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json")
 
 echo "Server response: $RESPONSE"
 
@@ -350,8 +391,8 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "manager=npm" \
   -F "hash=secure-bundle-hash-12345" \
   -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
-  -F "lockfile=@package-lock.json" \
-  -F "manifest=@package.json"
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
 ```
 
 ## Cache Storage Structure

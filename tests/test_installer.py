@@ -25,6 +25,10 @@ class TestNpmInstaller:
     @patch('subprocess.run')
     def test_npm_install_success(self, mock_run, mock_walk, tmp_path):
         mock_run.return_value = Mock(returncode=0, stderr="")
+        # Create a lockfile so npm ci is used
+        lockfile_path = tmp_path / "package-lock.json"
+        lockfile_path.write_text('{"lockfileVersion": 2}')
+        
         # Mock os.walk to return some files
         node_modules_path = tmp_path / "node_modules"
         node_modules_path.mkdir()
@@ -48,8 +52,51 @@ class TestNpmInstaller:
         assert kwargs['env']['NODE_ENV'] == 'production'
     
     @patch('subprocess.run')
+    def test_npm_install_without_lockfile(self, mock_run, tmp_path):
+        mock_run.return_value = Mock(returncode=0, stderr="")
+        # No lockfile created initially, so npm install should be used
+        
+        # Create node_modules with some files
+        node_modules_path = tmp_path / "node_modules"
+        node_modules_path.mkdir()
+        test_file = node_modules_path / "test.js"
+        test_file.write_bytes(b"test content")
+        
+        installer = NpmInstaller("14.20.0", "6.14.13")
+        
+        # Mock the subprocess to also create a lockfile (simulating npm install behavior)
+        def side_effect(*args, **kwargs):
+            lockfile_path = tmp_path / "package-lock.json"
+            lockfile_path.write_text('{"lockfileVersion": 2, "generated": true}')
+            return Mock(returncode=0, stderr="")
+        
+        mock_run.side_effect = side_effect
+        
+        result = installer.install(str(tmp_path))
+        
+        assert result.success is True
+        assert result.error_message is None
+        assert len(result.files) > 0
+        
+        # Check that the generated lockfile is included in results
+        lockfile_in_results = any(f.relative_path == "package-lock.json" for f in result.files)
+        assert lockfile_in_results
+        
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        
+        assert args[0] == ["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]
+        assert kwargs['cwd'] == str(tmp_path)
+        assert 'env' in kwargs
+        assert kwargs['env']['NODE_ENV'] == 'production'
+    
+    @patch('subprocess.run')
     def test_npm_install_failure(self, mock_run, tmp_path):
         mock_run.return_value = Mock(returncode=1, stderr="npm install failed")
+        
+        # Create a lockfile so npm ci is used
+        lockfile_path = tmp_path / "package-lock.json"
+        lockfile_path.write_text('{"lockfileVersion": 2}')
         
         installer = NpmInstaller("14.20.0", "6.14.13")
         result = installer.install(str(tmp_path))
