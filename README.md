@@ -152,6 +152,81 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 - `401 Unauthorized`: Missing or invalid API key
 - `500 Internal Server Error`: Server processing error
 
+**Example curl requests:**
+
+1. Public server (no authentication):
+```bash
+# First, create sample files and calculate hash
+echo '{"name": "test-app", "version": "1.0.0"}' > package.json
+echo '{"lockfileVersion": 2}' > package-lock.json
+
+# Encode files to base64
+PACKAGE_JSON_B64=$(base64 -w0 package.json)
+PACKAGE_LOCK_B64=$(base64 -w0 package-lock.json)
+
+# Make request
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manager": "npm",
+    "hash": "test-bundle-hash-12345",
+    "files": {
+      "package.json": "'$PACKAGE_JSON_B64'",
+      "package-lock.json": "'$PACKAGE_LOCK_B64'"
+    },
+    "versions": {
+      "node": "14.20.0",
+      "npm": "6.14.13"
+    }
+  }'
+```
+
+2. Authenticated server:
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer secret-key-1" \
+  -d '{
+    "manager": "npm",
+    "hash": "test-bundle-hash-12345",
+    "files": {
+      "package.json": "'$PACKAGE_JSON_B64'",
+      "package-lock.json": "'$PACKAGE_LOCK_B64'"
+    },
+    "versions": {
+      "node": "14.20.0",
+      "npm": "6.14.13"
+    }
+  }'
+```
+
+3. Composer example:
+```bash
+# Create composer files
+echo '{"require": {"monolog/monolog": "2.0"}}' > composer.json
+echo '{"content-hash": "test"}' > composer.lock
+
+# Encode to base64
+COMPOSER_JSON_B64=$(base64 -w0 composer.json)
+COMPOSER_LOCK_B64=$(base64 -w0 composer.lock)
+
+# Make request
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer secret-key-1" \
+  -d '{
+    "manager": "composer",
+    "hash": "composer-bundle-hash-67890",
+    "files": {
+      "composer.json": "'$COMPOSER_JSON_B64'",
+      "composer.lock": "'$COMPOSER_LOCK_B64'"
+    },
+    "versions": {
+      "php": "8.1.0"
+    }
+  }'
+```
+
 ### GET /download/{bundle_hash}.zip
 
 Download a cached dependency bundle.
@@ -159,6 +234,20 @@ Download a cached dependency bundle.
 **Response:**
 - `200 OK`: ZIP file stream
 - `404 Not Found`: Bundle not found
+
+**Example curl requests:**
+
+```bash
+# Download a bundle
+curl -O http://localhost:8080/download/test-bundle-hash-12345.zip
+
+# Download with custom filename
+curl http://localhost:8080/download/test-bundle-hash-12345.zip \
+  -o my-dependencies.zip
+
+# Check if bundle exists (HEAD request)
+curl -I http://localhost:8080/download/test-bundle-hash-12345.zip
+```
 
 ### GET /health
 
@@ -169,6 +258,12 @@ Health check endpoint.
 {
   "status": "healthy"
 }
+```
+
+**Example curl request:**
+
+```bash
+curl http://localhost:8080/health
 ```
 
 ## Client Integration
@@ -187,6 +282,117 @@ The client will:
 1. Calculate bundle hash locally
 2. Send cache request to server
 3. Download and extract the ZIP bundle
+
+### Complete Example with curl
+
+Here's a complete example of using the server with curl commands:
+
+```bash
+# 1. Start the server (in one terminal)
+python main.py 8080 \
+  --cache_dir=./cache \
+  --supported-versions-node=14.20.0:6.14.13,16.15.0:8.5.0 \
+  --supported-versions-php=8.1.0 \
+  --is_public
+
+# 2. Create test npm project files
+cat > package.json << 'EOF'
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.0",
+    "lodash": "^4.17.21"
+  }
+}
+EOF
+
+cat > package-lock.json << 'EOF'
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "test-project",
+      "version": "1.0.0",
+      "dependencies": {
+        "express": "^4.18.0",
+        "lodash": "^4.17.21"
+      }
+    }
+  }
+}
+EOF
+
+# 3. Calculate hash (simplified - actual client would use proper hash calculation)
+# For this example, we'll use a static hash
+BUNDLE_HASH="example-bundle-hash-$(date +%s)"
+
+# 4. Encode files to base64
+PACKAGE_JSON_B64=$(base64 -w0 package.json)
+PACKAGE_LOCK_B64=$(base64 -w0 package-lock.json)
+
+# 5. Send cache request
+RESPONSE=$(curl -s -X POST http://localhost:8080/v1/cache \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manager": "npm",
+    "hash": "'$BUNDLE_HASH'",
+    "files": {
+      "package.json": "'$PACKAGE_JSON_B64'",
+      "package-lock.json": "'$PACKAGE_LOCK_B64'"
+    },
+    "versions": {
+      "node": "14.20.0",
+      "npm": "6.14.13"
+    }
+  }')
+
+echo "Server response: $RESPONSE"
+
+# 6. Extract download URL from response
+DOWNLOAD_URL=$(echo $RESPONSE | grep -o '"download_url":"[^"]*' | cut -d'"' -f4)
+echo "Download URL: $DOWNLOAD_URL"
+
+# 7. Download the bundle
+curl -o dependencies.zip "$DOWNLOAD_URL"
+
+# 8. Extract dependencies
+unzip -q dependencies.zip -d ./
+echo "Dependencies extracted to node_modules/"
+
+# 9. Verify extraction
+ls -la node_modules/ | head -10
+```
+
+### Example with Authentication
+
+```bash
+# Start server with authentication
+python main.py 8080 \
+  --cache_dir=./cache \
+  --supported-versions-node=14.20.0:6.14.13 \
+  --api-keys=my-secret-key-123,backup-key-456
+
+# Make authenticated request
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer my-secret-key-123" \
+  -d '{
+    "manager": "npm",
+    "hash": "secure-bundle-hash-12345",
+    "files": {
+      "package.json": "'$(base64 -w0 package.json)'",
+      "package-lock.json": "'$(base64 -w0 package-lock.json)'"
+    },
+    "versions": {
+      "node": "14.20.0",
+      "npm": "6.14.13"
+    }
+  }'
+```
 
 ## Cache Storage Structure
 
