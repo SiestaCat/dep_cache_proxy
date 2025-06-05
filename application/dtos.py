@@ -12,16 +12,15 @@ class FileData:
 class CacheRequest:
     manager: str
     versions: Dict[str, str]
-    lock_content: str
-    manifest_content: Optional[str]
+    lockfile_content: bytes
+    manifest_content: bytes
 
 
 @dataclass
 class CacheResponse:
     bundle_hash: str
     download_url: str
-    cache_hit: bool
-    installation_method: str  # 'cached', 'native', 'docker'
+    is_cache_hit: bool
 
 
 @dataclass
@@ -29,4 +28,3 @@ class InstallationResult:
     success: bool
     files: List[FileData]
     error_message: Optional[str] = None
-    installation_method: str = 'native'
