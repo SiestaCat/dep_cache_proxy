@@ -14,6 +14,7 @@ class CacheRequest:
     versions: Dict[str, str]
     lockfile_content: bytes
     manifest_content: bytes
+    custom_args: Optional[List[str]] = None
 
 
 @dataclass

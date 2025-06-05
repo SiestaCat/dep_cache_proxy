@@ -138,7 +138,7 @@ class TestComposerInstaller:
         
         expected_cmd = [
             "composer", "install",
-            "--no-dev", "--prefer-dist",
+            "--prefer-dist",
             "--no-scripts", "--no-interaction",
             "--optimize-autoloader"
         ]

@@ -5,6 +5,12 @@ from typing import Dict, Optional, List, Tuple
 import tempfile
 import os
 import shlex
+import sys
+from pathlib import Path
+
+# Add the project root to the Python path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from application.dtos import InstallationResult, FileData
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,10 @@ class DockerUtils:
         """
         self.use_docker = use_docker
         self._docker_available = None
+    
+    def is_available(self) -> bool:
+        """Check if Docker is available (alias for is_docker_available)."""
+        return self.is_docker_available()
     
     def is_docker_available(self) -> bool:
         """Check if Docker is available and running."""
@@ -43,12 +53,13 @@ class DockerUtils:
             
         return self._docker_available
     
-    def install_with_docker(
+    def _install_with_docker_internal(
         self,
         manager: str,
         version: str,
         lockfile_content: bytes,
-        manifest_content: Optional[bytes] = None
+        manifest_content: Optional[bytes] = None,
+        custom_args: Optional[List[str]] = None
     ) -> List[Tuple[str, bytes]]:
         """
         Install dependencies using Docker with specific manager version.
@@ -90,7 +101,7 @@ class DockerUtils:
             image = self._get_docker_image(manager, version)
             
             # Build install command
-            install_cmd = self._get_install_command(manager)
+            install_cmd = self._get_install_command(manager, custom_args)
             
             # Run Docker container
             docker_cmd = [
@@ -161,7 +172,7 @@ class DockerUtils:
         else:
             raise RuntimeError(f"Unsupported manager for Docker: {manager}")
     
-    def _get_install_command(self, manager: str) -> str:
+    def _get_install_command(self, manager: str, custom_args: Optional[List[str]] = None) -> str:
         """Get the installation command for a package manager."""
         commands = {
             "npm": "npm ci --ignore-scripts",
@@ -174,6 +185,10 @@ class DockerUtils:
         base_cmd = commands.get(manager)
         if not base_cmd:
             raise RuntimeError(f"Unsupported manager: {manager}")
+        
+        # Add custom arguments if provided
+        if custom_args:
+            base_cmd += " " + " ".join(custom_args)
             
         # For Python managers, install the tool first
         if manager == "pipenv":
@@ -217,3 +232,84 @@ class DockerUtils:
             "poetry": [".venv"]
         }
         return directories.get(manager, [])
+    
+    def install_with_docker(
+        self,
+        work_dir: str,
+        manager: str,
+        versions: Dict[str, str],
+        custom_args: Optional[List[str]] = None
+    ) -> InstallationResult:
+        """
+        Install dependencies using Docker - interface matching HandleCacheRequest expectations.
+        
+        Args:
+            work_dir: Working directory containing manifest and lockfile
+            manager: Package manager name
+            versions: Version dictionary
+            custom_args: Optional custom arguments
+            
+        Returns:
+            InstallationResult with success status and files
+        """
+        if not self.use_docker:
+            return InstallationResult(
+                success=False,
+                files=[],
+                error_message="Docker usage is disabled"
+            )
+            
+        if not self.is_docker_available():
+            return InstallationResult(
+                success=False,
+                files=[],
+                error_message="Docker is not available"
+            )
+        
+        try:
+            work_path = Path(work_dir)
+            
+            # Read manifest and lockfile
+            manifest_name = self._get_manifest_name(manager)
+            lockfile_name = self._get_lockfile_name(manager)
+            
+            manifest_path = work_path / manifest_name
+            lockfile_path = work_path / lockfile_name
+            
+            manifest_content = manifest_path.read_bytes() if manifest_path.exists() else None
+            lockfile_content = lockfile_path.read_bytes() if lockfile_path.exists() else b''
+            
+            # Get version string for Docker
+            version = self._get_version_for_docker(manager, versions)
+            
+            # Call the original docker method
+            file_tuples = self._install_with_docker_internal(
+                manager, version, lockfile_content, manifest_content, custom_args
+            )
+            
+            # Convert to FileData objects
+            files = [FileData(rel_path, content) for rel_path, content in file_tuples]
+            
+            return InstallationResult(
+                success=True,
+                files=files,
+                error_message=None
+            )
+            
+        except Exception as e:
+            return InstallationResult(
+                success=False,
+                files=[],
+                error_message=f"Docker installation failed: {str(e)}"
+            )
+    
+    def _get_version_for_docker(self, manager: str, versions: Dict[str, str]) -> str:
+        """Extract version string for Docker from versions dict."""
+        if manager in ['npm', 'yarn']:
+            # Use node version for Docker image
+            return versions.get('node', versions.get('runtime', 'latest'))
+        elif manager == 'composer':
+            # Use php version
+            return versions.get('php', versions.get('runtime', 'latest'))
+        else:
+            return 'latest'

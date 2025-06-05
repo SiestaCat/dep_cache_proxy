@@ -141,7 +141,7 @@ class TestHandleCacheRequest:
         
         # Verify installer was used
         mock_installer_factory.create_installer.assert_called_with(
-            'npm', {'runtime': '14.17.0', 'package_manager': '6.14.13'}
+            'npm', {'runtime': '14.17.0', 'package_manager': '6.14.13'}, None
         )
         mock_installer.install.assert_called_once()
         
@@ -473,7 +473,7 @@ class TestHandleCacheRequest:
         
         # Verify the installer was called with the original API format versions
         mock_installer_factory.create_installer.assert_called_with(
-            'npm', {'node': '14.17.0', 'npm': '6.14.13'}
+            'npm', {'node': '14.17.0', 'npm': '6.14.13'}, None
         )
     
     def test_determine_installation_method_with_api_format(self, handler, mock_docker_utils):

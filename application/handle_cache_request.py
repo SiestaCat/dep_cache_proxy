@@ -85,7 +85,7 @@ class HandleCacheRequest:
         
         # Get lockfile and manifest names
         installer = self.installer_factory.create_installer(
-            request.manager, request.versions
+            request.manager, request.versions, request.custom_args
         )
         
         # Add lockfile only if present
@@ -208,7 +208,7 @@ class HandleCacheRequest:
         try:
             # Get installer
             installer = self.installer_factory.create_installer(
-                request.manager, request.versions
+                request.manager, request.versions, request.custom_args
             )
             
             # Write manifest
@@ -240,7 +240,7 @@ class HandleCacheRequest:
         try:
             # Get installer for file names
             installer = self.installer_factory.create_installer(
-                request.manager, request.versions
+                request.manager, request.versions, request.custom_args
             )
             
             # Write manifest
@@ -254,7 +254,8 @@ class HandleCacheRequest:
             return self.docker_utils.install_with_docker(
                 str(temp_dir),
                 request.manager,
-                request.versions
+                request.versions,
+                request.custom_args
             )
             
         finally:

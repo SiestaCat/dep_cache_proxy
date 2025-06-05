@@ -90,7 +90,8 @@ async def cache_dependencies(
     manager: str = Form(...),
     hash: str = Form(...),
     versions: str = Form(...),
-    file: TypingList[UploadFile] = File(...)
+    file: TypingList[UploadFile] = File(...),
+    custom_args: Optional[str] = Form(None)
 ):
     """
     Process a cache request for dependencies.
@@ -106,6 +107,7 @@ async def cache_dependencies(
     - hash: Pre-calculated bundle hash
     - versions: JSON string with version information
     - file: Array of files (manifest and optionally lockfile)
+    - custom_args: Optional JSON array of custom arguments for the package manager
     """
     if not config or not cache_repository:
         raise HTTPException(status_code=500, detail="Server not properly configured")
@@ -115,6 +117,16 @@ async def cache_dependencies(
         versions_dict = json.loads(versions)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid versions JSON")
+    
+    # Parse custom arguments if provided
+    custom_args_list = None
+    if custom_args:
+        try:
+            custom_args_list = json.loads(custom_args)
+            if not isinstance(custom_args_list, list):
+                raise ValueError("custom_args must be a JSON array")
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid custom_args: {str(e)}")
     
     # Validate manager
     if manager not in ["npm", "composer", "yarn"]:
@@ -186,7 +198,8 @@ async def cache_dependencies(
         manager=manager,
         versions=versions_dict,
         lockfile_content=lockfile_content,
-        manifest_content=manifest_content
+        manifest_content=manifest_content,
+        custom_args=custom_args_list
     )
     
     try:

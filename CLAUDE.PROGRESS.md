@@ -371,3 +371,37 @@ The DepCacheProxy server component has been fully implemented according to the a
     - Lockfile is properly optional, matching real-world usage
     - npm install can generate lockfile when missing
     - Cleaner API without hardcoded field names
+
+#### 2025-01-06 (Custom Arguments Support)
+- **Added Custom Arguments Feature**: Implemented support for custom package manager arguments:
+  - Problem: Users needed to pass custom arguments (e.g., `--no-dev` for composer, `--production` for npm)
+  - Solution: Added `custom_args` parameter throughout the system
+  - Changes implemented:
+    1. **DTO Layer** (`application/dtos.py`):
+       - Added `custom_args: Optional[List[str]] = None` to `CacheRequest`
+    2. **API Layer** (`interfaces/api.py`):
+       - Added `custom_args: Optional[str] = Form(None)` parameter
+       - Parses JSON array string into Python list
+       - Validates that custom_args is a valid JSON array if provided
+    3. **Domain Layer** (`domain/installer.py`):
+       - Updated `DependencyInstaller` base class to accept `custom_args`
+       - Modified `NpmInstaller` and `ComposerInstaller` to append custom arguments to command
+       - **Removed `--no-dev` default** from `ComposerInstaller` as requested
+       - Updated `InstallerFactory` to pass custom_args to installer constructors
+    4. **Infrastructure Layer** (`infrastructure/docker_utils.py`):
+       - Updated `install_with_docker` methods to accept and use custom_args
+       - Modified `_get_install_command` to append custom arguments to Docker commands
+       - Added new interface method matching `HandleCacheRequest` expectations
+    5. **Application Layer** (`application/handle_cache_request.py`):
+       - Updated all installer factory calls to pass `request.custom_args`
+       - Custom arguments are now passed to both native and Docker installations
+    6. **Documentation**:
+       - Updated README.md with custom arguments examples
+       - Added feature to features list
+       - Included curl examples showing `--no-dev`, `--production`, and multiple arguments
+       - Updated API documentation to include `custom_args` parameter
+  - Benefits:
+    - Users can pass custom arguments to package managers
+    - Composer no longer defaults to `--no-dev` (users can add it via custom_args if needed)
+    - Works with both native installations and Docker fallback
+    - Maintains security by appending to predefined safe commands

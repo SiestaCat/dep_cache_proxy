@@ -1306,6 +1306,9 @@ The `/v1/cache` endpoint accepts multipart form data with the following fields:
 * `versions` (string): JSON string containing version information - required
   * For `npm`: `{"node": "14.20.0", "npm": "6.14.13"}`
   * For `composer`: `{"php": "8.1.0"}`
+* `custom_args` (string): JSON string containing custom installation arguments - optional
+  * For `npm`: `{"npm_args": ["--legacy-peer-deps", "--force"]}`
+  * For `composer`: `{"composer_args": ["--no-dev", "--optimize-autoloader"]}`
 * `file[]` (file): Array of files - required
   * Must include the manifest file (package.json for npm, composer.json for composer)
   * Lockfile is optional:
@@ -1335,13 +1338,36 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "file[]=@package.json"
 ```
 
-3. composer (lockfile always optional):
+3. npm with custom arguments:
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer API_KEY" \
+  -F "manager=npm" \
+  -F "hash=ab12cd34ef56..." \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F 'custom_args={"npm_args":["--legacy-peer-deps","--force"]}' \
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
+```
+
+4. composer (lockfile always optional):
 ```bash
 curl -X POST http://localhost:8080/v1/cache \
   -H "Authorization: Bearer API_KEY" \
   -F "manager=composer" \
   -F "hash=ab12cd34ef56..." \
   -F 'versions={"php":"8.1.0"}' \
+  -F "file[]=@composer.json"
+```
+
+5. composer with custom arguments:
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer API_KEY" \
+  -F "manager=composer" \
+  -F "hash=ab12cd34ef56..." \
+  -F 'versions={"php":"8.1.0"}' \
+  -F 'custom_args={"composer_args":["--no-dev","--optimize-autoloader"]}' \
   -F "file[]=@composer.json"
 ```
 

@@ -18,6 +18,7 @@ DepCacheProxy Server implements a content-addressable storage system for depende
 - ✅ JSON indexes mapping file paths to content hashes
 - ✅ Automatic ZIP bundle generation from stored blobs
 - ✅ Support for npm and composer (extensible to other package managers)
+- ✅ Custom arguments support for package managers (e.g., --no-dev for composer)
 - ✅ Docker integration for handling unsupported package manager versions
 - ✅ API key authentication with Bearer tokens
 - ✅ Thread-safe concurrent request handling
@@ -128,6 +129,7 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 - `hash` (string): Pre-calculated bundle hash
 - `versions` (string): JSON string with version information
 - `file[]` (file): Array of files - manifest (required) and lockfile (optional)
+- `custom_args` (string, optional): JSON array of custom arguments for the package manager
 
 **Response (200 OK):**
 ```json
@@ -243,6 +245,39 @@ curl -X POST http://localhost:8080/v1/cache \
   -F "hash=composer-no-lock-hash-67890" \
   -F 'versions={"php":"8.1.0"}' \
   -F "file[]=@composer.json"
+```
+
+6. Using custom arguments:
+```bash
+# Example: Composer with --no-dev to exclude development dependencies
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=composer" \
+  -F "hash=composer-no-dev-hash-12345" \
+  -F 'versions={"php":"8.1.0"}' \
+  -F 'custom_args=["--no-dev"]' \
+  -F "file[]=@composer.json" \
+  -F "file[]=@composer.lock"
+
+# Example: npm with --production flag
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=npm" \
+  -F "hash=npm-production-hash-67890" \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F 'custom_args=["--production"]' \
+  -F "file[]=@package.json" \
+  -F "file[]=@package-lock.json"
+
+# Example: Multiple custom arguments
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=composer" \
+  -F "hash=composer-custom-hash-11111" \
+  -F 'versions={"php":"8.1.0"}' \
+  -F 'custom_args=["--no-dev","--verbose"]' \
+  -F "file[]=@composer.json" \
+  -F "file[]=@composer.lock"
 ```
 
 ### GET /download/{bundle_hash}.zip

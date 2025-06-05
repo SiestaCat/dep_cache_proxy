@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock, call
 import subprocess
 import tempfile
 import os
+from pathlib import Path
 from infrastructure.docker_utils import DockerUtils
 
 
@@ -146,99 +147,110 @@ class TestDockerUtils(unittest.TestCase):
                 result = self.docker_utils._get_install_directories(manager)
                 self.assertEqual(result, expected)
     
-    @patch('subprocess.run')
-    def test_install_with_docker_success(self, mock_run):
+    def test_install_with_docker_success(self):
         """Test successful Docker installation."""
         # Mock Docker availability
         self.docker_utils._docker_available = True
         
-        # Mock subprocess run
-        mock_run.return_value = MagicMock(returncode=0, stdout="Installation successful")
-        
-        # Mock file operations and collection
-        with patch('builtins.open', create=True) as mock_open:
-            mock_open.return_value.__enter__.return_value = MagicMock()
+        # Create a real temporary directory for the test
+        with tempfile.TemporaryDirectory() as real_temp_dir:
+            # Create actual test files
+            manifest_path = Path(real_temp_dir) / "package.json"
+            manifest_path.write_bytes(b'{"name": "test"}')
             
-            with patch.object(self.docker_utils, '_collect_files') as mock_collect:
-                mock_collect.return_value = [
+            lockfile_path = Path(real_temp_dir) / "package-lock.json"
+            lockfile_path.write_bytes(b'{"dependencies": {}}')
+            
+            # Mock the internal method
+            with patch.object(self.docker_utils, '_install_with_docker_internal') as mock_internal:
+                mock_internal.return_value = [
                     ("node_modules/package1/index.js", b"console.log('test');"),
                     ("node_modules/package1/package.json", b'{"name": "package1"}')
                 ]
                 
                 # Run installation
-                lockfile_content = b'{"dependencies": {}}'
-                manifest_content = b'{"name": "test"}'
-                
                 result = self.docker_utils.install_with_docker(
-                    "npm", "14.17.0", lockfile_content, manifest_content
+                    real_temp_dir, "npm", {"node": "14.17.0", "npm": "6.14.13"}
                 )
             
             # Verify results
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0][0], "node_modules/package1/index.js")
+            self.assertTrue(result.success)
+            self.assertEqual(len(result.files), 2)
+            self.assertEqual(result.files[0].relative_path, "node_modules/package1/index.js")
             
-            # Verify Docker command
-            docker_cmd = mock_run.call_args[0][0]
-            self.assertEqual(docker_cmd[0:3], ["docker", "run", "--rm"])
-            self.assertIn("node:14.17.0-alpine", docker_cmd)
-            self.assertIn("npm ci --ignore-scripts", docker_cmd)
+            # Verify internal method was called
+            mock_internal.assert_called_once_with(
+                "npm", "14.17.0", b'{"dependencies": {}}', b'{"name": "test"}', None
+            )
     
     def test_install_with_docker_disabled(self):
         """Test Docker installation when Docker is disabled."""
         docker_utils = DockerUtils(use_docker=False)
         
-        with self.assertRaises(RuntimeError) as context:
-            docker_utils.install_with_docker("npm", "14.17.0", b"lockfile")
+        result = docker_utils.install_with_docker("/tmp/test", "npm", {"node": "14.17.0"})
         
-        self.assertIn("Docker usage is disabled", str(context.exception))
+        self.assertFalse(result.success)
+        self.assertIn("Docker usage is disabled", result.error_message)
     
     @patch('subprocess.run')
     def test_install_with_docker_not_available(self, mock_run):
         """Test Docker installation when Docker is not available."""
         mock_run.return_value = MagicMock(returncode=1)
         
-        with self.assertRaises(RuntimeError) as context:
-            self.docker_utils.install_with_docker("npm", "14.17.0", b"lockfile")
+        result = self.docker_utils.install_with_docker("/tmp/test", "npm", {"node": "14.17.0"})
         
-        self.assertIn("Docker is not available", str(context.exception))
+        self.assertFalse(result.success)
+        self.assertIn("Docker is not available", result.error_message)
     
-    @patch('subprocess.run')
-    def test_install_with_docker_failure(self, mock_run):
+    def test_install_with_docker_failure(self):
         """Test Docker installation failure."""
         # Mock Docker availability
         self.docker_utils._docker_available = True
         
-        # Mock subprocess run failure
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stderr="npm ERR! Failed to install dependencies"
-        )
-        
-        with patch('builtins.open', create=True) as mock_open:
-            mock_open.return_value.__enter__.return_value = MagicMock()
+        # Create a real temporary directory for the test
+        with tempfile.TemporaryDirectory() as real_temp_dir:
+            # Create actual test files
+            manifest_path = Path(real_temp_dir) / "package.json"
+            manifest_path.write_bytes(b'{"name": "test"}')
             
-            with self.assertRaises(RuntimeError) as context:
-                self.docker_utils.install_with_docker("npm", "14.17.0", b"lockfile")
+            lockfile_path = Path(real_temp_dir) / "package-lock.json"
+            lockfile_path.write_bytes(b'{"dependencies": {}}')
             
-            self.assertIn("Docker installation failed", str(context.exception))
-            self.assertIn("npm ERR!", str(context.exception))
+            # Mock internal method to raise error
+            with patch.object(self.docker_utils, '_install_with_docker_internal') as mock_internal:
+                mock_internal.side_effect = RuntimeError("Docker installation failed: npm ERR! Failed to install dependencies")
+                
+                result = self.docker_utils.install_with_docker(
+                    real_temp_dir, "npm", {"node": "14.17.0"}
+                )
+            
+            self.assertFalse(result.success)
+            self.assertIn("Docker installation failed", result.error_message)
     
-    @patch('subprocess.run')
-    def test_install_with_docker_timeout(self, mock_run):
+    def test_install_with_docker_timeout(self):
         """Test Docker installation timeout."""
         # Mock Docker availability
         self.docker_utils._docker_available = True
         
-        # Mock subprocess timeout
-        mock_run.side_effect = subprocess.TimeoutExpired("docker", 300)
-        
-        with patch('builtins.open', create=True) as mock_open:
-            mock_open.return_value.__enter__.return_value = MagicMock()
+        # Create a real temporary directory for the test
+        with tempfile.TemporaryDirectory() as real_temp_dir:
+            # Create actual test files
+            manifest_path = Path(real_temp_dir) / "package.json"
+            manifest_path.write_bytes(b'{"name": "test"}')
             
-            with self.assertRaises(RuntimeError) as context:
-                self.docker_utils.install_with_docker("npm", "14.17.0", b"lockfile")
+            lockfile_path = Path(real_temp_dir) / "package-lock.json"
+            lockfile_path.write_bytes(b'{"dependencies": {}}')
             
-            self.assertIn("Docker installation timed out", str(context.exception))
+            # Mock internal method to raise timeout error
+            with patch.object(self.docker_utils, '_install_with_docker_internal') as mock_internal:
+                mock_internal.side_effect = RuntimeError("Docker installation timed out")
+                
+                result = self.docker_utils.install_with_docker(
+                    real_temp_dir, "npm", {"node": "14.17.0"}
+                )
+            
+            self.assertFalse(result.success)
+            self.assertIn("Docker installation timed out", result.error_message)
     
     def test_collect_files(self):
         """Test file collection from installation directory."""

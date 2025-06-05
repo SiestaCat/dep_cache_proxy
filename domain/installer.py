@@ -13,6 +13,10 @@ from application.dtos import InstallationResult, FileData
 class DependencyInstaller(ABC):
     """Abstract base class for dependency installers."""
     
+    def __init__(self, custom_args: Optional[List[str]] = None):
+        """Initialize with optional custom arguments."""
+        self.custom_args = custom_args or []
+    
     @abstractmethod
     def install(self, work_dir: str) -> InstallationResult:
         """Install dependencies in the given directory."""
@@ -56,7 +60,8 @@ class DependencyInstaller(ABC):
 class NpmInstaller(DependencyInstaller):
     """Installer for npm packages."""
     
-    def __init__(self, node_version: str, npm_version: str):
+    def __init__(self, node_version: str, npm_version: str, custom_args: Optional[List[str]] = None):
+        super().__init__(custom_args)
         self.node_version = node_version
         self.npm_version = npm_version
     
@@ -74,6 +79,9 @@ class NpmInstaller(DependencyInstaller):
         else:
             # Use npm install when lockfile is missing
             cmd = ["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]
+        
+        # Add custom arguments if provided
+        cmd.extend(self.custom_args)
         
         env = os.environ.copy()
         env["NODE_ENV"] = "production"
@@ -124,17 +132,21 @@ class NpmInstaller(DependencyInstaller):
 class ComposerInstaller(DependencyInstaller):
     """Installer for PHP Composer packages."""
     
-    def __init__(self, php_version: str):
+    def __init__(self, php_version: str, custom_args: Optional[List[str]] = None):
+        super().__init__(custom_args)
         self.php_version = php_version
     
     def install(self, work_dir: str) -> InstallationResult:
         """Install composer dependencies."""
         cmd = [
             "composer", "install",
-            "--no-dev", "--prefer-dist",
+            "--prefer-dist",
             "--no-scripts", "--no-interaction",
             "--optimize-autoloader"
         ]
+        
+        # Add custom arguments if provided
+        cmd.extend(self.custom_args)
         
         result = subprocess.run(
             cmd,
@@ -175,24 +187,24 @@ class ComposerInstaller(DependencyInstaller):
 class InstallerFactory:
     """Factory for creating dependency installers."""
     
-    def get_installer(self, manager: str, versions: Dict[str, str]) -> DependencyInstaller:
+    def get_installer(self, manager: str, versions: Dict[str, str], custom_args: Optional[List[str]] = None) -> DependencyInstaller:
         """Create and return the appropriate installer for the given manager."""
         if manager == "npm":
             node_version = versions.get("node")
             npm_version = versions.get("npm")
             if not node_version or not npm_version:
                 raise ValueError("Missing node or npm version for npm manager")
-            return NpmInstaller(node_version, npm_version)
+            return NpmInstaller(node_version, npm_version, custom_args)
         
         elif manager == "composer":
             php_version = versions.get("php")
             if not php_version:
                 raise ValueError("Missing php version for composer manager")
-            return ComposerInstaller(php_version)
+            return ComposerInstaller(php_version, custom_args)
         
         else:
             raise ValueError(f"Unsupported manager: {manager}")
     
-    def create_installer(self, manager: str, versions: Dict[str, str]) -> DependencyInstaller:
+    def create_installer(self, manager: str, versions: Dict[str, str], custom_args: Optional[List[str]] = None) -> DependencyInstaller:
         """Alias for get_installer to match usage in HandleCacheRequest."""
-        return self.get_installer(manager, versions)
+        return self.get_installer(manager, versions, custom_args)
