@@ -667,32 +667,23 @@ Under `<cache_dir>`, there are three main subfolders:
    * Reads `package.json` and `package.lock`.
    * Builds `versions = {"node":"14.20.0","npm":"6.14.13"}`.
    * Calculates **bundle\_hash** using `DependencySet.calculate_hash()`.
-   * Encodes files in Base64 and constructs JSON payload:
-
-     ```jsonc
-     {
-       "manager": "npm",
-       "hash": "<bundle_hash>",
-       "files": {
-         "package.json": "<base64>",
-         "package.lock": "<base64>"
-       },
-       "versions": {
-         "node": "14.20.0",
-         "npm": "6.14.13"
-       }
-     }
-     ```
+   * Constructs multipart form data request:
+     * `manager`: "npm"
+     * `hash`: calculated bundle hash
+     * `versions`: JSON string `{"node":"14.20.0","npm":"6.14.13"}`
+     * `lockfile`: file upload of `package.lock`
+     * `manifest`: file upload of `package.json`
    * Sends `POST https://server:8080/api/v1/cache` with:
-
-     * Headers: `Authorization: Bearer MY_API_KEY`.
-     * The JSON payload above.
+     * Headers: `Authorization: Bearer MY_API_KEY`, `Content-Type: multipart/form-data`
+     * The multipart form data above.
 
 2. **Server: `POST /v1/cache`**
 
-   * FastAPI receives the request in `cache_endpoint()`.
+   * FastAPI receives the multipart form data request in `cache_endpoint()`.
    * **Validate API Key** (if `--is_public=false`).
-   * Parse JSON into `CacheRequestDTO`.
+   * Parse multipart form data:
+     * Extract form fields: `manager`, `hash`, `versions` (parse JSON string)
+     * Extract file uploads: `lockfile`, `manifest`
    * **Validate Manager** (`npm` or `composer`).
    * **Validate Versions**:
 
@@ -1302,35 +1293,37 @@ class ZipUtil:
 
 ### 9.1 Routes
 
-| Method | Route                         | Description                                                | Request Body      | Responses                                                                                                     |
-| ------ | ----------------------------- | ---------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------- |
-| POST   | `/v1/cache`                   | Request cache of dependencies: hit/miss and download URL.  | `CacheRequestDTO` | `200 OK` → `CacheResponseDTO` <br> `400 Bad Request` <br> `401 Unauthorized` <br> `500 Internal Server Error` |
-| GET    | `/download/{bundle_hash}.zip` | Download the generated ZIP for the specified bundle\_hash. | None              | `200 OK` → ZIP <br> `404 Not Found`                                                                           |
+| Method | Route                         | Description                                                | Request Type        | Responses                                                                                                     |
+| ------ | ----------------------------- | ---------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/cache`                   | Request cache of dependencies: hit/miss and download URL.  | Multipart Form Data | `200 OK` → `CacheResponseDTO` <br> `400 Bad Request` <br> `401 Unauthorized` <br> `500 Internal Server Error` |
+| GET    | `/download/{bundle_hash}.zip` | Download the generated ZIP for the specified bundle\_hash. | None                | `200 OK` → ZIP <br> `404 Not Found`                                                                           |
 
-### 9.2 `CacheRequestDTO`
+### 9.2 `CacheRequestDTO` (Multipart Form Data)
 
-```jsonc
-{
-  "manager": "npm",
-  "hash": "ab12cd34ef56...",
-  "files": {
-    "package.json": "<base64_content>",
-    "package.lock": "<base64_content>"
-  },
-  "versions": {
-    "node": "14.20.0",
-    "npm": "6.14.13"
-  }
-}
+The `/v1/cache` endpoint accepts multipart form data with the following fields:
+
+* `manager` (string): Package manager name (e.g., "npm", "composer") - required
+* `hash` (string): Pre-calculated bundle hash - required
+* `versions` (string): JSON string containing version information - required
+  * For `npm`: `{"node": "14.20.0", "npm": "6.14.13"}`
+  * For `composer`: `{"php": "8.1.0"}`
+* `lockfile` (file): The lockfile upload - required
+  * For `npm`: `package-lock.json`
+  * For `composer`: `composer.lock`
+* `manifest` (file): The manifest file upload - required
+  * For `npm`: `package.json`
+  * For `composer`: `composer.json`
+
+Example curl request:
+```bash
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer API_KEY" \
+  -F "manager=npm" \
+  -F "hash=ab12cd34ef56..." \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "lockfile=@package-lock.json" \
+  -F "manifest=@package.json"
 ```
-
-* `manager`: string (required).
-* `hash`: string (bundle hash, required).
-* `files`: map\<string, string> (Base64 file contents, required).
-* `versions`: map\<string, string> (required):
-
-  * For `npm`: requires `"node"` and `"npm"`.
-  * For `composer`: requires `"php"`.
 
 ### 9.3 `CacheResponseDTO`
 

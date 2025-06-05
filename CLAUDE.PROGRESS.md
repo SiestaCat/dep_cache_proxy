@@ -310,3 +310,31 @@ The DepCacheProxy server component has been fully implemented according to the a
   - Updated existing tests to reflect new behavior (unknown managers now accepted)
   - Fixed mock objects in tests to properly simulate dependency set storage
 - **All Tests Passing**: Entire test suite (135 tests) passes successfully with the new behavior
+
+#### 2025-01-06 (API Update - Multipart File Upload)
+- **Updated API Design**: Changed from JSON with Base64 encoding to multipart file uploads:
+  - Problem: Base64 encoding increases payload size by ~33% and can hit shell/system limits
+  - Solution: Modified `/v1/cache` endpoint to accept multipart form data
+  - Changes implemented:
+    1. **API Layer** (`interfaces/api.py`):
+       - Updated endpoint to accept form fields: `manager`, `hash`, `versions` (JSON string)
+       - Updated endpoint to accept file uploads: `lockfile`, `manifest`
+       - Removed CacheRequestDTO Pydantic model (no longer needed for multipart)
+       - Added proper file reading with `await file.read()`
+    2. **Tests** (`tests/test_api.py`):
+       - Updated all test cases to use multipart form data instead of JSON
+       - Changed from `client.post(..., json=data)` to `client.post(..., data=data, files=files)`
+       - Used BytesIO for creating file-like objects in tests
+       - Updated edge case tests to match new API format
+    3. **Documentation**:
+       - Updated README.md with new curl examples using `-F` flags for multipart
+       - Updated analysis.md section 9.2 to document multipart form fields
+       - Changed all examples from Base64 JSON to multipart uploads
+  - Benefits:
+    - Reduced payload size (no Base64 overhead)
+    - More standard REST API practice for file uploads
+    - Works better with large files and command-line tools
+    - Avoids shell argument size limitations
+- **All Tests Updated**: Modified test suite to use new multipart API
+  - All 86 tests continue to pass with the new implementation
+  - Edge cases properly handle multipart validation errors

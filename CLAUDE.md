@@ -55,8 +55,23 @@ cache/
 ## Development Commands
 
 ### Running Tests
+
+**⚠️ IMPORTANT**: Always run tests after making any code changes to ensure nothing is broken.
+
 ```bash
 source venv/bin/activate && python -m pytest tests/ -v
+```
+
+Quick test command (for frequent use during development):
+```bash
+# Run all tests with minimal output
+source venv/bin/activate && python -m pytest tests/
+
+# Run specific test file
+source venv/bin/activate && python -m pytest tests/test_api.py -v
+
+# Run tests with short traceback on failures
+source venv/bin/activate && python -m pytest tests/ -v --tb=short
 ```
 
 ### Server Usage (planned)

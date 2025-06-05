@@ -5,6 +5,7 @@ import tempfile
 import os
 import json
 import base64
+from io import BytesIO
 
 from interfaces.api import app, initialize_app, Config
 from application.dtos import CacheResponse, InstallationResult, FileData
@@ -63,45 +64,41 @@ class TestAPI:
         )
         mock_handler_class.return_value = mock_handler
         
-        request_data = {
+        # Create multipart form data
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
+        }
+        data = {
             'manager': 'npm',
             'hash': 'abc123',
-            'files': {
-                'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
-                'package.json': base64.b64encode(b'manifest content').decode('utf-8')
-            },
-            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
+            'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
         }
         
         # Act
-        response = client.post("/v1/cache", json=request_data)
+        response = client.post("/v1/cache", data=data, files=files)
         
         # Assert
         assert response.status_code == 200
-        data = response.json()
-        assert data['download_url'] == 'http://localhost:8000/download/abc123.zip'
-        assert data['cache_hit'] is True
+        response_data = response.json()
+        assert response_data['download_url'] == 'http://localhost:8000/download/abc123.zip'
+        assert response_data['cache_hit'] is True
     
-    @patch('interfaces.api.HandleCacheRequest')
-    def test_cache_dependencies_validation_error(self, mock_handler_class, client):
+    def test_cache_dependencies_validation_error(self, client):
         """Test cache request with validation error."""
-        # Arrange
-        mock_handler = Mock()
-        mock_handler.handle.side_effect = ValueError("Invalid manager")
-        mock_handler_class.return_value = mock_handler
-        
-        request_data = {
+        # Create multipart form data with invalid manager
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
+        }
+        data = {
             'manager': 'invalid_manager',
             'hash': 'invalid_hash',
-            'files': {
-                'lockfile': base64.b64encode(b'lockfile content').decode('utf-8'),
-                'manifest': base64.b64encode(b'manifest content').decode('utf-8')
-            },
-            'versions': {'runtime': '1.0.0'}
+            'versions': json.dumps({'runtime': '1.0.0'})
         }
         
         # Act
-        response = client.post("/v1/cache", json=request_data)
+        response = client.post("/v1/cache", data=data, files=files)
         
         # Assert
         assert response.status_code == 400
@@ -115,18 +112,19 @@ class TestAPI:
         mock_handler.handle.side_effect = Exception("Internal error")
         mock_handler_class.return_value = mock_handler
         
-        request_data = {
+        # Create multipart form data
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'manifest content'), 'application/json')
+        }
+        data = {
             'manager': 'npm',
             'hash': 'test_hash',
-            'files': {
-                'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
-                'package.json': base64.b64encode(b'manifest content').decode('utf-8')
-            },
-            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
+            'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
         }
         
         # Act
-        response = client.post("/v1/cache", json=request_data)
+        response = client.post("/v1/cache", data=data, files=files)
         
         # Assert
         assert response.status_code == 500
@@ -135,19 +133,27 @@ class TestAPI:
     def test_cache_dependencies_missing_fields(self, client):
         """Test cache request with missing required fields."""
         # Missing manager
-        response = client.post("/v1/cache", json={
-            'versions': {'runtime': '14.17.0'},
-            'lockfile_content': 'content',
-            'manifest_content': 'content'
-        })
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+        }
+        data = {
+            'hash': 'test_hash',
+            'versions': json.dumps({'runtime': '14.17.0'})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         assert response.status_code == 422
         
         # Missing versions
-        response = client.post("/v1/cache", json={
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+        }
+        data = {
             'manager': 'npm',
-            'lockfile_content': 'content',
-            'manifest_content': 'content'
-        })
+            'hash': 'test_hash'
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         assert response.status_code == 422
     
     def test_download_bundle_success(self, client, temp_cache_dir):
@@ -211,38 +217,40 @@ class TestAPI:
         
         with TestClient(test_app) as client:
             # Test with supported version using API format keys
-            response = client.post("/v1/cache", json={
+            files = {
+                'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+                'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
+            }
+            data = {
                 'manager': 'npm',
                 'hash': 'a5cb864746fb36608c41186cf3322bcc3357eaa1512daa34a04c55df1bef59f3',
-                'files': {
-                    'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
-                    'package.json': base64.b64encode(b'{"name": "test"}').decode('utf-8')
-                },
-                'versions': {
+                'versions': json.dumps({
                     'node': '14.20.0',  # Using 'node' instead of 'runtime'
                     'npm': '6.14.13'    # Using 'npm' instead of 'package_manager'
-                }
-            })
+                })
+            }
+            response = client.post("/v1/cache", data=data, files=files)
             
             # Should succeed with supported version (cache hit)
             assert response.status_code == 200
-            data = response.json()
-            assert 'download_url' in data
-            assert data['cache_hit'] is True  # Should be cache hit since we pre-created the bundle
+            response_data = response.json()
+            assert 'download_url' in response_data
+            assert response_data['cache_hit'] is True  # Should be cache hit since we pre-created the bundle
             
             # Test with unsupported version using API format keys
-            response = client.post("/v1/cache", json={
+            files = {
+                'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+                'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
+            }
+            data = {
                 'manager': 'npm',
                 'hash': 'test_unsupported_hash',
-                'files': {
-                    'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
-                    'package.json': base64.b64encode(b'{"name": "test"}').decode('utf-8')
-                },
-                'versions': {
+                'versions': json.dumps({
                     'node': '18.0.0',  # Unsupported version
                     'npm': '9.0.0'     # Unsupported version
-                }
-            })
+                })
+            }
+            response = client.post("/v1/cache", data=data, files=files)
             
             # Should fail with unsupported version
             assert response.status_code == 400
@@ -264,30 +272,32 @@ class TestAPI:
                 response = client.get("/health")  # Health check doesn't require auth
                 assert response.status_code == 200
                 
-                response = client.post("/v1/cache", json={
+                files = {
+                    'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+                    'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+                }
+                data = {
                     'manager': 'npm',
                     'hash': 'test_hash',
-                    'files': {
-                        'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
-                        'package.json': base64.b64encode(b'content').decode('utf-8')
-                    },
-                    'versions': {'node': '14.17.0', 'npm': '6.14.13'}
-                })
+                    'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
+                }
+                response = client.post("/v1/cache", data=data, files=files)
                 assert response.status_code == 401
                 assert 'Authorization' in response.json()['detail']
                 
                 # Request with invalid API key
+                files = {
+                    'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+                    'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+                }
+                data = {
+                    'manager': 'npm',
+                    'hash': 'test_hash',
+                    'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
+                }
                 response = client.post("/v1/cache", 
                     headers={'Authorization': 'Bearer invalid-key'},
-                    json={
-                        'manager': 'npm',
-                        'hash': 'test_hash',
-                        'files': {
-                            'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
-                            'package.json': base64.b64encode(b'content').decode('utf-8')
-                        },
-                        'versions': {'node': '14.17.0', 'npm': '6.14.13'}
-                    })
+                    data=data, files=files)
                 assert response.status_code == 401
                 assert 'Invalid API key' in response.json()['detail']
                 
@@ -301,17 +311,18 @@ class TestAPI:
                     )
                     mock_handler_class.return_value = mock_handler
                     
+                    files = {
+                        'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+                        'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+                    }
+                    data = {
+                        'manager': 'npm',
+                        'hash': 'test_hash',
+                        'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
+                    }
                     response = client.post("/v1/cache", 
                         headers={'Authorization': 'Bearer test-key-123'},
-                        json={
-                            'manager': 'npm',
-                            'hash': 'test_hash',
-                            'files': {
-                                'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
-                                'package.json': base64.b64encode(b'content').decode('utf-8')
-                            },
-                            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
-                        })
+                        data=data, files=files)
                     # Should not return 401
                     assert response.status_code == 200
     
@@ -339,15 +350,16 @@ class TestAPI:
         # Simulate uninitialized repository
         mock_repo.__bool__.return_value = False
         
-        response = client.post("/v1/cache", json={
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'content'), 'application/json')
+        }
+        data = {
             'manager': 'npm',
             'hash': 'test_hash',
-            'files': {
-                'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
-                'package.json': base64.b64encode(b'content').decode('utf-8')
-            },
-            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
-        })
+            'versions': json.dumps({'node': '14.17.0', 'npm': '6.14.13'})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
         assert response.status_code == 500
         assert 'Server not properly configured' in response.json()['detail']
@@ -375,51 +387,53 @@ class TestAPIEdgeCases:
         with TestClient(test_app) as client:
             yield client
     
-    def test_cache_request_with_malformed_base64(self, client):
-        """Test cache request with invalid base64 encoding."""
-        response = client.post("/v1/cache", json={
-            "manager": "npm",
-            "hash": "test_hash",
-            "files": {
-                "package-lock.json": "not-valid-base64\!@#$",
-                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
-            },
-            "versions": {"node": "14.20.0", "npm": "6.14.13"}
-        })
+    def test_cache_request_with_malformed_json_versions(self, client):
+        """Test cache request with invalid JSON in versions field."""
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'lockfile content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
+        }
+        data = {
+            'manager': 'npm',
+            'hash': 'test_hash',
+            'versions': 'not-valid-json{{{'
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
         assert response.status_code == 400
-        # Base64 decoding error messages can vary
-        detail = response.json()["detail"]
-        assert "padding" in detail.lower() or "invalid" in detail.lower()
+        assert "Invalid versions JSON" in response.json()["detail"]
     
     def test_cache_request_with_empty_files(self, client):
         """Test cache request with empty file content."""
-        response = client.post("/v1/cache", json={
-            "manager": "npm",
-            "hash": "test_hash",
-            "files": {
-                "package-lock.json": base64.b64encode(b"").decode("utf-8"),
-                "package.json": base64.b64encode(b"").decode("utf-8")
-            },
-            "versions": {"node": "14.20.0", "npm": "6.14.13"}
-        })
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b''), 'application/json'),
+            'manifest': ('package.json', BytesIO(b''), 'application/json')
+        }
+        data = {
+            'manager': 'npm',
+            'hash': 'test_hash',
+            'versions': json.dumps({"node": "14.20.0", "npm": "6.14.13"})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
-        # Should handle empty files gracefully
-        assert response.status_code in [200, 500]  # Depends on npm reaction to empty files
+        # Should reject empty files
+        assert response.status_code == 400
+        assert "Empty file content" in response.json()["detail"]
     
     def test_cache_request_with_very_long_hash(self, client):
         """Test cache request with extremely long hash value."""
         long_hash = "a" * 1000  # 1000 character hash
         
-        response = client.post("/v1/cache", json={
-            "manager": "npm",
-            "hash": long_hash,
-            "files": {
-                "package-lock.json": base64.b64encode(b"content").decode("utf-8"),
-                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
-            },
-            "versions": {"node": "14.20.0", "npm": "6.14.13"}
-        })
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
+        }
+        data = {
+            'manager': 'npm',
+            'hash': long_hash,
+            'versions': json.dumps({"node": "14.20.0", "npm": "6.14.13"})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
         # Should handle long hashes (might fail on file system limits)
         assert response.status_code in [200, 400, 500]
@@ -428,15 +442,16 @@ class TestAPIEdgeCases:
         """Test cache request with special characters in hash."""
         special_hash = "test/../../../etc/passwd"  # Path traversal attempt
         
-        response = client.post("/v1/cache", json={
-            "manager": "npm",
-            "hash": special_hash,
-            "files": {
-                "package-lock.json": base64.b64encode(b"content").decode("utf-8"),
-                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
-            },
-            "versions": {"node": "14.20.0", "npm": "6.14.13"}
-        })
+        files = {
+            'lockfile': ('package-lock.json', BytesIO(b'content'), 'application/json'),
+            'manifest': ('package.json', BytesIO(b'{"name": "test"}'), 'application/json')
+        }
+        data = {
+            'manager': 'npm',
+            'hash': special_hash,
+            'versions': json.dumps({"node": "14.20.0", "npm": "6.14.13"})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
         # Should reject or sanitize dangerous paths
         assert response.status_code in [400, 500]
@@ -448,15 +463,16 @@ class TestAPIEdgeCases:
     
     def test_cache_request_with_unknown_manager(self, client):
         """Test cache request with unknown package manager."""
-        response = client.post("/v1/cache", json={
-            "manager": "unknown_manager",
-            "hash": "test_hash",
-            "files": {
-                "unknown.lock": base64.b64encode(b"content").decode("utf-8"),
-                "unknown.json": base64.b64encode(b"content").decode("utf-8")
-            },
-            "versions": {"runtime": "1.0.0"}
-        })
+        files = {
+            'lockfile': ('unknown.lock', BytesIO(b'content'), 'application/json'),
+            'manifest': ('unknown.json', BytesIO(b'content'), 'application/json')
+        }
+        data = {
+            'manager': 'unknown_manager',
+            'hash': 'test_hash',
+            'versions': json.dumps({"runtime": "1.0.0"})
+        }
+        response = client.post("/v1/cache", data=data, files=files)
         
         assert response.status_code == 400
         assert "Unsupported manager" in response.json()["detail"]

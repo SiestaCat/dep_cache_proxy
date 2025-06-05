@@ -121,23 +121,14 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 
 **Request Headers:**
 - `Authorization: Bearer <api-key>` (required unless server is public)
-- `Content-Type: application/json`
+- `Content-Type: multipart/form-data`
 
-**Request Body:**
-```json
-{
-  "manager": "npm",
-  "hash": "calculated-bundle-hash",
-  "files": {
-    "package.json": "<base64-encoded-content>",
-    "package-lock.json": "<base64-encoded-content>"
-  },
-  "versions": {
-    "node": "14.20.0",
-    "npm": "6.14.13"
-  }
-}
-```
+**Request Form Data:**
+- `manager` (string): Package manager (npm, composer, etc.)
+- `hash` (string): Pre-calculated bundle hash
+- `versions` (string): JSON string with version information
+- `lockfile` (file): Lockfile upload (package-lock.json, composer.lock, etc.)
+- `manifest` (file): Manifest file upload (package.json, composer.json, etc.)
 
 **Response (200 OK):**
 ```json
@@ -154,78 +145,63 @@ Request caching of dependencies. Returns download URL for the cached bundle.
 
 **Example curl requests:**
 
-> **Note**: For large files, avoid embedding base64 content directly in the curl command as it can exceed shell argument limits. Use one of the file-based methods shown below.
-
 1. Public server (no authentication):
 ```bash
 # First, create sample files
 echo '{"name": "test-app", "version": "1.0.0"}' > package.json
 echo '{"lockfileVersion": 2}' > package-lock.json
 
-# Create request JSON file
-cat > request.json << EOF
+# Make request with multipart form data
+curl -X POST http://localhost:8080/v1/cache \
+  -F "manager=npm" \
+  -F "hash=test-bundle-hash-12345" \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "lockfile=@package-lock.json" \
+  -F "manifest=@package.json"
+```
+
+2. Authenticated server:
+```bash
+# Create files
+echo '{"name": "test-app", "version": "1.0.0"}' > package.json
+echo '{"lockfileVersion": 2}' > package-lock.json
+
+# Make authenticated request
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer secret-key-1" \
+  -F "manager=npm" \
+  -F "hash=test-bundle-hash-12345" \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "lockfile=@package-lock.json" \
+  -F "manifest=@package.json"
+```
+
+3. Composer example:
+```bash
+# Create composer files
+cat > composer.json << 'EOF'
 {
-  "manager": "npm",
-  "hash": "test-bundle-hash-12345",
-  "files": {
-    "package.json": "$(base64 -w0 package.json)",
-    "package-lock.json": "$(base64 -w0 package-lock.json)"
-  },
-  "versions": {
-    "node": "14.20.0",
-    "npm": "6.14.13"
+  "require": {
+    "monolog/monolog": "^2.0"
   }
+}
+EOF
+
+cat > composer.lock << 'EOF'
+{
+  "content-hash": "test-hash",
+  "packages": []
 }
 EOF
 
 # Make request
 curl -X POST http://localhost:8080/v1/cache \
-  -H "Content-Type: application/json" \
-  -d @request.json
-```
-
-2. Authenticated server:
-```bash
-# Using jq for JSON construction (install with: apt-get install jq)
-jq -n \
-  --arg manager "npm" \
-  --arg hash "test-bundle-hash-12345" \
-  --arg pkg_json "$(base64 -w0 package.json)" \
-  --arg pkg_lock "$(base64 -w0 package-lock.json)" \
-  '{
-    manager: $manager,
-    hash: $hash,
-    files: {
-      "package.json": $pkg_json,
-      "package-lock.json": $pkg_lock
-    },
-    versions: {
-      node: "14.20.0",
-      npm: "6.14.13"
-    }
-  }' | curl -X POST http://localhost:8080/v1/cache \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer secret-key-1" \
-    -d @-
-```
-
-3. Composer example (compact for small files):
-```bash
-# For small files, you can use inline encoding
-curl -X POST http://localhost:8080/v1/cache \
-  -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-key-1" \
-  -d "{
-    \"manager\": \"composer\",
-    \"hash\": \"composer-bundle-hash-67890\",
-    \"files\": {
-      \"composer.json\": \"$(echo '{"require": {"monolog/monolog": "2.0"}}' | base64 -w0)\",
-      \"composer.lock\": \"$(echo '{"content-hash": "test"}' | base64 -w0)\"
-    },
-    \"versions\": {
-      \"php\": \"8.1.0\"
-    }
-  }"
+  -F "manager=composer" \
+  -F "hash=composer-bundle-hash-67890" \
+  -F 'versions={"php":"8.1.0"}' \
+  -F "lockfile=@composer.lock" \
+  -F "manifest=@composer.json"
 ```
 
 ### GET /download/{bundle_hash}.zip
@@ -331,26 +307,16 @@ EOF
 # For this example, we'll use a static hash
 BUNDLE_HASH="example-bundle-hash-$(date +%s)"
 
-# 4. Create request JSON with base64 encoded files
-cat > request.json << EOF
-{
-  "manager": "npm",
-  "hash": "$BUNDLE_HASH",
-  "files": {
-    "package.json": "$(base64 -w0 package.json)",
-    "package-lock.json": "$(base64 -w0 package-lock.json)"
-  },
-  "versions": {
-    "node": "14.20.0",
-    "npm": "6.14.13"
-  }
-}
-EOF
+# 4. Create versions JSON
+VERSIONS_JSON='{"node":"14.20.0","npm":"6.14.13"}'
 
-# 5. Send cache request
+# 5. Send cache request using multipart form data
 RESPONSE=$(curl -s -X POST http://localhost:8080/v1/cache \
-  -H "Content-Type: application/json" \
-  -d @request.json)
+  -F "manager=npm" \
+  -F "hash=$BUNDLE_HASH" \
+  -F "versions=$VERSIONS_JSON" \
+  -F "lockfile=@package-lock.json" \
+  -F "manifest=@package.json")
 
 echo "Server response: $RESPONSE"
 
@@ -378,25 +344,14 @@ python main.py 8080 \
   --supported-versions-node=14.20.0:6.14.13 \
   --api-keys=my-secret-key-123,backup-key-456
 
-# Create request with jq (or use the file method from example 1)
-jq -n \
-  --arg pkg_json "$(base64 -w0 package.json)" \
-  --arg pkg_lock "$(base64 -w0 package-lock.json)" \
-  '{
-    manager: "npm",
-    hash: "secure-bundle-hash-12345",
-    files: {
-      "package.json": $pkg_json,
-      "package-lock.json": $pkg_lock
-    },
-    versions: {
-      node: "14.20.0",
-      npm: "6.14.13"
-    }
-  }' | curl -X POST http://localhost:8080/v1/cache \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer my-secret-key-123" \
-    -d @-
+# Send authenticated request with multipart form data
+curl -X POST http://localhost:8080/v1/cache \
+  -H "Authorization: Bearer my-secret-key-123" \
+  -F "manager=npm" \
+  -F "hash=secure-bundle-hash-12345" \
+  -F 'versions={"node":"14.20.0","npm":"6.14.13"}' \
+  -F "lockfile=@package-lock.json" \
+  -F "manifest=@package.json"
 ```
 
 ## Cache Storage Structure
