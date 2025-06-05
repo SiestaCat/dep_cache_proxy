@@ -129,10 +129,30 @@ class HandleCacheRequest:
             return False
         
         supported_list = self.supported_versions[manager]
+        
+        # Convert request versions to the expected format
+        normalized_versions = {}
+        if manager in ('npm', 'yarn'):
+            # Map node -> runtime, npm -> package_manager
+            if 'node' in versions:
+                normalized_versions['runtime'] = versions['node']
+            if 'npm' in versions:
+                normalized_versions['package_manager'] = versions['npm']
+            elif 'yarn' in versions:
+                normalized_versions['package_manager'] = versions['yarn']
+        elif manager == 'composer':
+            # Map php -> runtime
+            if 'php' in versions:
+                normalized_versions['runtime'] = versions['php']
+        else:
+            # For other managers, use as-is
+            normalized_versions = versions
+        
+        # Now check against supported versions
         for supported in supported_list:
             # Check if all version fields match
             match = True
-            for key, value in versions.items():
+            for key, value in normalized_versions.items():
                 if supported.get(key) != value:
                     match = False
                     break

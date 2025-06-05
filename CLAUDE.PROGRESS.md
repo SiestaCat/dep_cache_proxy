@@ -249,3 +249,12 @@ The DepCacheProxy server component has been fully implemented according to the a
   - Code uses "indexes" directory but physical directory was created as "indices"
   - This doesn't affect functionality as the code consistently creates/uses "indexes"
   - Consider renaming for consistency in future maintenance
+
+#### 2025-01-06 (Bug Fix - Version Matching)
+- **Fixed Version Matching Issue**: The API was rejecting valid npm versions due to key mismatch:
+  - Problem: Client sends versions with keys like `"node": "14.20.0", "npm": "6.14.13"`
+  - Server expected keys like `"runtime": "14.20.0", "package_manager": "6.14.13"`
+  - Solution: Updated `_is_version_supported()` in `handle_cache_request.py` to normalize version keys
+  - Now correctly maps client format (node/npm) to internal format (runtime/package_manager)
+  - Also handles composer (php -> runtime) and other package managers
+  - Fix allows server to properly validate supported versions and process cache requests
