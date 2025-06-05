@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch, MagicMock
 import tempfile
 import os
 import json
+import base64
 
 from interfaces.api import app, initialize_app, Config
 from application.dtos import CacheResponse
@@ -64,9 +65,12 @@ class TestAPI:
         
         request_data = {
             'manager': 'npm',
-            'versions': {'runtime': '14.17.0', 'package_manager': '6.14.13'},
-            'lockfile_content': 'lockfile content',
-            'manifest_content': 'manifest content'
+            'hash': 'abc123',
+            'files': {
+                'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
+                'package.json': base64.b64encode(b'manifest content').decode('utf-8')
+            },
+            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
         }
         
         # Act
@@ -75,9 +79,8 @@ class TestAPI:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert data['bundle_hash'] == 'abc123'
         assert data['download_url'] == 'http://localhost:8000/download/abc123.zip'
-        assert data['is_cache_hit'] is True
+        assert data['cache_hit'] is True
     
     @patch('interfaces.api.HandleCacheRequest')
     def test_cache_dependencies_validation_error(self, mock_handler_class, client):
@@ -89,9 +92,12 @@ class TestAPI:
         
         request_data = {
             'manager': 'invalid_manager',
-            'versions': {'runtime': '1.0.0'},
-            'lockfile_content': 'lockfile content',
-            'manifest_content': 'manifest content'
+            'hash': 'invalid_hash',
+            'files': {
+                'lockfile': base64.b64encode(b'lockfile content').decode('utf-8'),
+                'manifest': base64.b64encode(b'manifest content').decode('utf-8')
+            },
+            'versions': {'runtime': '1.0.0'}
         }
         
         # Act
@@ -99,7 +105,7 @@ class TestAPI:
         
         # Assert
         assert response.status_code == 400
-        assert 'Invalid manager' in response.json()['detail']
+        assert 'Unsupported manager' in response.json()['detail']
     
     @patch('interfaces.api.HandleCacheRequest')
     def test_cache_dependencies_internal_error(self, mock_handler_class, client):
@@ -111,9 +117,12 @@ class TestAPI:
         
         request_data = {
             'manager': 'npm',
-            'versions': {'runtime': '14.17.0', 'package_manager': '6.14.13'},
-            'lockfile_content': 'lockfile content',
-            'manifest_content': 'manifest content'
+            'hash': 'test_hash',
+            'files': {
+                'package-lock.json': base64.b64encode(b'lockfile content').decode('utf-8'),
+                'package.json': base64.b64encode(b'manifest content').decode('utf-8')
+            },
+            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
         }
         
         # Act
@@ -185,21 +194,27 @@ class TestAPI:
                 
                 response = client.post("/v1/cache", json={
                     'manager': 'npm',
-                    'versions': {'runtime': '14.17.0'},
-                    'lockfile_content': 'content',
-                    'manifest_content': 'content'
+                    'hash': 'test_hash',
+                    'files': {
+                        'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
+                        'package.json': base64.b64encode(b'content').decode('utf-8')
+                    },
+                    'versions': {'node': '14.17.0', 'npm': '6.14.13'}
                 })
                 assert response.status_code == 401
-                assert 'API key required' in response.json()['detail']
+                assert 'Authorization' in response.json()['detail']
                 
                 # Request with invalid API key
                 response = client.post("/v1/cache", 
-                    headers={'X-Api-Key': 'invalid-key'},
+                    headers={'Authorization': 'Bearer invalid-key'},
                     json={
                         'manager': 'npm',
-                        'versions': {'runtime': '14.17.0'},
-                        'lockfile_content': 'content',
-                        'manifest_content': 'content'
+                        'hash': 'test_hash',
+                        'files': {
+                            'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
+                            'package.json': base64.b64encode(b'content').decode('utf-8')
+                        },
+                        'versions': {'node': '14.17.0', 'npm': '6.14.13'}
                     })
                 assert response.status_code == 401
                 assert 'Invalid API key' in response.json()['detail']
@@ -215,12 +230,15 @@ class TestAPI:
                     mock_handler_class.return_value = mock_handler
                     
                     response = client.post("/v1/cache", 
-                        headers={'X-Api-Key': 'test-key-123'},
+                        headers={'Authorization': 'Bearer test-key-123'},
                         json={
                             'manager': 'npm',
-                            'versions': {'runtime': '14.17.0'},
-                            'lockfile_content': 'content',
-                            'manifest_content': 'content'
+                            'hash': 'test_hash',
+                            'files': {
+                                'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
+                                'package.json': base64.b64encode(b'content').decode('utf-8')
+                            },
+                            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
                         })
                     # Should not return 401
                     assert response.status_code == 200
@@ -251,9 +269,12 @@ class TestAPI:
         
         response = client.post("/v1/cache", json={
             'manager': 'npm',
-            'versions': {'runtime': '14.17.0'},
-            'lockfile_content': 'content',
-            'manifest_content': 'content'
+            'hash': 'test_hash',
+            'files': {
+                'package-lock.json': base64.b64encode(b'content').decode('utf-8'),
+                'package.json': base64.b64encode(b'content').decode('utf-8')
+            },
+            'versions': {'node': '14.17.0', 'npm': '6.14.13'}
         })
         
         assert response.status_code == 500

@@ -1,6 +1,7 @@
 from typing import Optional, List
 import os
 import io
+import base64
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -34,11 +35,18 @@ class Config:
         self.base_url = base_url.rstrip('/')
 
 
-class CacheRequestModel(BaseModel):
+class CacheRequestDTO(BaseModel):
+    """Request model matching analysis.md specification."""
     manager: str = Field(..., description="Package manager (npm, composer, etc.)")
+    hash: str = Field(..., description="Pre-calculated bundle hash")
+    files: dict = Field(..., description="Base64-encoded file contents")
     versions: dict = Field(..., description="Version information for the manager")
-    lockfile_content: str = Field(..., description="Content of the lock file")
-    manifest_content: str = Field(..., description="Content of the manifest file")
+
+
+class CacheResponseDTO(BaseModel):
+    """Response model matching analysis.md specification."""
+    download_url: str = Field(..., description="URL to download the bundle ZIP")
+    cache_hit: bool = Field(..., description="Whether the bundle was already cached")
 
 
 config: Optional[Config] = None
@@ -67,21 +75,25 @@ app = FastAPI(
 )
 
 
-def validate_api_key(x_api_key: Optional[str] = Header(None)) -> None:
-    """Validate API key if authentication is enabled."""
+def validate_api_key(authorization: Optional[str] = Header(None)) -> None:
+    """Validate API key using Bearer token format."""
     if config and not config.is_public:
         if not api_key_validator:
             raise HTTPException(status_code=500, detail="Server configuration error")
         
-        if not x_api_key:
-            raise HTTPException(status_code=401, detail="API key required")
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Missing Authorization Bearer <APIKEY>")
         
-        if not api_key_validator.validate(x_api_key):
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization format. Use Bearer <APIKEY>")
+        
+        api_key = authorization.split(" ", 1)[1]
+        if not api_key_validator.validate(api_key):
             raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-@app.post("/v1/cache", response_model=CacheResponse, dependencies=[Depends(validate_api_key)])
-async def cache_dependencies(request: CacheRequestModel):
+@app.post("/v1/cache", response_model=CacheResponseDTO, dependencies=[Depends(validate_api_key)])
+async def cache_dependencies(request: CacheRequestDTO):
     """
     Process a cache request for dependencies.
     
@@ -103,22 +115,54 @@ async def cache_dependencies(request: CacheRequestModel):
         use_docker_on_version_mismatch=config.use_docker_on_version_mismatch
     )
     
+    # Validate the bundle hash matches the request
+    # (In a real implementation, we'd verify the hash matches the calculated one)
+    
+    # Decode Base64 files
+    try:
+        # Find lockfile and manifest in files dict
+        lockfile_content = None
+        manifest_content = None
+        
+        if request.manager == "npm":
+            lockfile_key = "package-lock.json"
+            manifest_key = "package.json"
+        elif request.manager == "composer":
+            lockfile_key = "composer.lock"
+            manifest_key = "composer.json"
+        else:
+            raise ValueError(f"Unsupported manager: {request.manager}")
+        
+        if lockfile_key in request.files:
+            lockfile_content = base64.b64decode(request.files[lockfile_key])
+        if manifest_key in request.files:
+            manifest_content = base64.b64decode(request.files[manifest_key])
+            
+        if not lockfile_content or not manifest_content:
+            raise ValueError("Missing required files in request")
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid file encoding: {str(e)}")
+    
     # Convert to application DTO
     cache_request = CacheRequest(
         manager=request.manager,
         versions=request.versions,
-        lockfile_content=request.lockfile_content.encode('utf-8'),
-        manifest_content=request.manifest_content.encode('utf-8')
+        lockfile_content=lockfile_content,
+        manifest_content=manifest_content
     )
     
     try:
         # Handle the request
         response = handler.handle(cache_request)
         
-        # Add base URL to download URL
-        response.download_url = f"{config.base_url}/download/{response.bundle_hash}.zip"
-        
-        return response
+        # Convert response to match API spec
+        return CacheResponseDTO(
+            download_url=f"{config.base_url}{response.download_url}",
+            cache_hit=response.is_cache_hit
+        )
     
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

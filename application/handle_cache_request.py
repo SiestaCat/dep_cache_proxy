@@ -168,17 +168,7 @@ class HandleCacheRequest:
             # Install
             result = installer.install(str(temp_dir))
             
-            if not result.success:
-                return result
-            
-            # Collect installed files
-            files = self._collect_files(temp_dir / installer.output_folder)
-            
-            return InstallationResult(
-                success=True,
-                files=files,
-                error_message=None
-            )
+            return result
             
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

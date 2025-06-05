@@ -3,13 +3,18 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import subprocess
 import os
+import sys
+
+# Add the project root to the Python path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from application.dtos import InstallationResult, FileData
 
 
 class DependencyInstaller(ABC):
     """Abstract base class for dependency installers."""
     
     @abstractmethod
-    def install(self, work_dir: Path) -> None:
+    def install(self, work_dir: str) -> InstallationResult:
         """Install dependencies in the given directory."""
         pass
     
@@ -30,6 +35,22 @@ class DependencyInstaller(ABC):
     def manifest_name(self) -> str:
         """Return the name of the manifest file for this manager."""
         pass
+    
+    def _collect_files(self, directory: Path) -> List[FileData]:
+        """Collect all files from a directory."""
+        files = []
+        
+        if not directory.exists():
+            return files
+        
+        for root, _, filenames in os.walk(directory):
+            for filename in filenames:
+                file_path = Path(root) / filename
+                relative_path = str(file_path.relative_to(directory))
+                content = file_path.read_bytes()
+                files.append(FileData(relative_path, content))
+        
+        return files
 
 
 class NpmInstaller(DependencyInstaller):
@@ -39,7 +60,7 @@ class NpmInstaller(DependencyInstaller):
         self.node_version = node_version
         self.npm_version = npm_version
     
-    def install(self, work_dir: Path) -> None:
+    def install(self, work_dir: str) -> InstallationResult:
         """Install npm dependencies using npm ci."""
         cmd = ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
         
@@ -48,14 +69,27 @@ class NpmInstaller(DependencyInstaller):
         
         result = subprocess.run(
             cmd,
-            cwd=str(work_dir),
+            cwd=work_dir,
             env=env,
             capture_output=True,
             text=True
         )
         
         if result.returncode != 0:
-            raise RuntimeError(f"npm install failed: {result.stderr}")
+            return InstallationResult(
+                success=False,
+                files=[],
+                error_message=f"npm install failed: {result.stderr}"
+            )
+        
+        # Collect installed files
+        files = self._collect_files(Path(work_dir) / self.output_folder_name)
+        
+        return InstallationResult(
+            success=True,
+            files=files,
+            error_message=None
+        )
     
     @property
     def output_folder_name(self) -> str:
@@ -76,7 +110,7 @@ class ComposerInstaller(DependencyInstaller):
     def __init__(self, php_version: str):
         self.php_version = php_version
     
-    def install(self, work_dir: Path) -> None:
+    def install(self, work_dir: str) -> InstallationResult:
         """Install composer dependencies."""
         cmd = [
             "composer", "install",
@@ -87,13 +121,26 @@ class ComposerInstaller(DependencyInstaller):
         
         result = subprocess.run(
             cmd,
-            cwd=str(work_dir),
+            cwd=work_dir,
             capture_output=True,
             text=True
         )
         
         if result.returncode != 0:
-            raise RuntimeError(f"composer install failed: {result.stderr}")
+            return InstallationResult(
+                success=False,
+                files=[],
+                error_message=f"composer install failed: {result.stderr}"
+            )
+        
+        # Collect installed files
+        files = self._collect_files(Path(work_dir) / self.output_folder_name)
+        
+        return InstallationResult(
+            success=True,
+            files=files,
+            error_message=None
+        )
     
     @property
     def output_folder_name(self) -> str:
@@ -128,3 +175,7 @@ class InstallerFactory:
         
         else:
             raise ValueError(f"Unsupported manager: {manager}")
+    
+    def create_installer(self, manager: str, versions: Dict[str, str]) -> DependencyInstaller:
+        """Alias for get_installer to match usage in HandleCacheRequest."""
+        return self.get_installer(manager, versions)

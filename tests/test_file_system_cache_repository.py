@@ -43,8 +43,11 @@ class TestFileSystemCacheRepository:
         
         repository.store_dependency_set(dep_set)
         
-        index_path = temp_cache_dir / "indexes" / bundle_hash[:2] / bundle_hash[2:4] / f"{bundle_hash}.json"
-        assert index_path.exists()
+        # Check for new index format: <bundle_hash>.<manager>.<manager_version>.index
+        index_pattern = temp_cache_dir / "indexes" / bundle_hash[:2] / bundle_hash[2:4]
+        index_files = list(index_pattern.glob(f"{bundle_hash}.*"))
+        assert len(index_files) > 0
+        index_path = index_files[0]
         
         with open(index_path, 'r') as f:
             index_data = json.load(f)
@@ -74,10 +77,13 @@ class TestFileSystemCacheRepository:
     def test_has_bundle_returns_true_after_storing(self, repository):
         files = [DependencyFile("file.txt", b"content")]
         dep_set = DependencySet("npm", files, node_version="14.0.0", npm_version="8.0.0")
+        bundle_hash = dep_set.calculate_bundle_hash()
         
         repository.store_dependency_set(dep_set)
+        # Generate the bundle to make has_bundle return true
+        repository.generate_bundle_zip(bundle_hash)
         
-        assert repository.has_bundle(dep_set.calculate_bundle_hash())
+        assert repository.has_bundle(bundle_hash)
     
     def test_get_index_returns_stored_index(self, repository):
         files = [
@@ -194,14 +200,18 @@ class TestFileSystemCacheRepository:
         assert all(result.exists() for result in results)
     
     def test_get_blob_and_store_blob(self, repository):
-        blob_hash = "test_hash"
         content = b"test content"
         
-        assert repository.get_blob(blob_hash) is None
+        # Calculate the actual hash
+        hasher = hashlib.new(HASH_ALGORITHM)
+        hasher.update(content)
+        actual_hash = hasher.hexdigest()
         
-        repository.store_blob(blob_hash, content)
+        assert repository.get_blob(actual_hash) is None
         
-        retrieved = repository.get_blob(blob_hash)
+        repository.store_blob(actual_hash, content)
+        
+        retrieved = repository.get_blob(actual_hash)
         assert retrieved == content
     
     def test_get_cache_stats(self, repository):

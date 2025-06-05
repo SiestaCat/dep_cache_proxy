@@ -21,12 +21,23 @@ class TestNpmInstaller:
         assert installer.lockfile_name == "package-lock.json"
         assert installer.manifest_name == "package.json"
     
+    @patch('os.walk')
     @patch('subprocess.run')
-    def test_npm_install_success(self, mock_run, tmp_path):
+    def test_npm_install_success(self, mock_run, mock_walk, tmp_path):
         mock_run.return_value = Mock(returncode=0, stderr="")
+        # Mock os.walk to return some files
+        node_modules_path = tmp_path / "node_modules"
+        node_modules_path.mkdir()
+        test_file = node_modules_path / "test.js"
+        test_file.write_bytes(b"test content")
+        mock_walk.return_value = [(str(node_modules_path), [], ["test.js"])]
         
         installer = NpmInstaller("14.20.0", "6.14.13")
-        installer.install(tmp_path)
+        result = installer.install(str(tmp_path))
+        
+        assert result.success is True
+        assert result.error_message is None
+        assert len(result.files) > 0
         
         mock_run.assert_called_once()
         args, kwargs = mock_run.call_args
@@ -41,11 +52,11 @@ class TestNpmInstaller:
         mock_run.return_value = Mock(returncode=1, stderr="npm install failed")
         
         installer = NpmInstaller("14.20.0", "6.14.13")
+        result = installer.install(str(tmp_path))
         
-        with pytest.raises(RuntimeError) as exc_info:
-            installer.install(tmp_path)
-        
-        assert "npm install failed" in str(exc_info.value)
+        assert result.success is False
+        assert result.error_message == "npm install failed: npm install failed"
+        assert len(result.files) == 0
 
 
 class TestComposerInstaller:
@@ -57,12 +68,23 @@ class TestComposerInstaller:
         assert installer.lockfile_name == "composer.lock"
         assert installer.manifest_name == "composer.json"
     
+    @patch('os.walk')
     @patch('subprocess.run')
-    def test_composer_install_success(self, mock_run, tmp_path):
+    def test_composer_install_success(self, mock_run, mock_walk, tmp_path):
         mock_run.return_value = Mock(returncode=0, stderr="")
+        # Mock os.walk to return some files
+        vendor_path = tmp_path / "vendor"
+        vendor_path.mkdir()
+        test_file = vendor_path / "test.php"
+        test_file.write_bytes(b"<?php echo 'test';")
+        mock_walk.return_value = [(str(vendor_path), [], ["test.php"])]
         
         installer = ComposerInstaller("8.1.0")
-        installer.install(tmp_path)
+        result = installer.install(str(tmp_path))
+        
+        assert result.success is True
+        assert result.error_message is None
+        assert len(result.files) > 0
         
         mock_run.assert_called_once()
         args, kwargs = mock_run.call_args
@@ -81,11 +103,11 @@ class TestComposerInstaller:
         mock_run.return_value = Mock(returncode=1, stderr="composer install failed")
         
         installer = ComposerInstaller("8.1.0")
+        result = installer.install(str(tmp_path))
         
-        with pytest.raises(RuntimeError) as exc_info:
-            installer.install(tmp_path)
-        
-        assert "composer install failed" in str(exc_info.value)
+        assert result.success is False
+        assert result.error_message == "composer install failed: composer install failed"
+        assert len(result.files) == 0
 
 
 class TestInstallerFactory:

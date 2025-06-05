@@ -46,6 +46,21 @@ class CacheRepository(ABC):
         pass
     
     @abstractmethod
+    def save_index(self, bundle_hash: str, manager: str, manager_version: str, index_data: Dict[str, str]) -> None:
+        """
+        Save the index data with proper naming convention.
+        
+        The index file should be named: <bundle_hash>.<manager>.<manager_version>.index
+        
+        Args:
+            bundle_hash: The hash of the dependency bundle
+            manager: The package manager (npm, composer, etc.)
+            manager_version: Version string (e.g., "14.20.0_6.14.13" for npm)
+            index_data: Dictionary mapping paths to hashes
+        """
+        pass
+    
+    @abstractmethod
     def has_bundle(self, bundle_hash: str) -> bool:
         """
         Check if a bundle exists in the cache.
@@ -55,6 +70,14 @@ class CacheRepository(ABC):
             
         Returns:
             True if the bundle exists, False otherwise
+        """
+        pass
+    
+    @abstractmethod
+    def exists_bundle(self, bundle_hash: str) -> bool:
+        """
+        Checks if a ZIP already exists for this bundle hash.
+        Alias for has_bundle() to maintain compatibility.
         """
         pass
     
@@ -82,6 +105,14 @@ class CacheRepository(ABC):
             
         Raises:
             IOError: If storage fails
+        """
+        pass
+    
+    @abstractmethod
+    def save_blob(self, file_hash: str, content: bytes) -> None:
+        """
+        Saves the file blob in cache/objects/<h0h1>/<h2h3>/<file_hash>, if not already present.
+        Alias for store_blob() to maintain compatibility.
         """
         pass
     
@@ -131,5 +162,19 @@ class CacheRepository(ABC):
             - total_indexes: Number of bundle indexes
             - total_bundles: Number of generated ZIP files
             - cache_size_bytes: Total size of all cached data
+        """
+        pass
+    
+    @abstractmethod
+    def get_blob_path(self, file_hash: str) -> Path:
+        """
+        Returns the absolute path to the blob given its hash.
+        """
+        pass
+    
+    @abstractmethod
+    def save_bundle_zip(self, bundle_hash: str, zip_content_path: Path) -> None:
+        """
+        Saves (or overwrites) the generated ZIP in cache/bundles/<bundle_hash>.zip.
         """
         pass
