@@ -1,0 +1,14 @@
+# Core dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+
+# Testing dependencies
+pytest==8.4.0
+httpx==0.25.1
+pytest-asyncio==0.21.1
+
+# Optional dependencies for development
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.0
