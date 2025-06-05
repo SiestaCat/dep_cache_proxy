@@ -1,5 +1,6 @@
 .history
 cache
+server.log
 
 # Python
 __pycache__/
