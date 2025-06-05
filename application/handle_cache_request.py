@@ -30,14 +30,15 @@ class HandleCacheRequest:
     
     def handle(self, request: CacheRequest) -> CacheResponse:
         """Process a cache request and return the response."""
-        # Calculate bundle hash
-        bundle_hash = self._calculate_bundle_hash(request)
+        # Calculate request hash (based on manifest, lockfile, and versions)
+        request_hash = self._calculate_bundle_hash(request)
         
-        # Check if bundle exists (cache hit)
-        if self.cache_repository.has_bundle(bundle_hash):
+        # Check if we have an index for this request (cache hit)
+        index_data = self.cache_repository.get_index(request_hash)
+        if index_data and self.cache_repository.has_bundle(request_hash):
             return CacheResponse(
-                bundle_hash=bundle_hash,
-                download_url=f"/download/{bundle_hash}.zip",
+                bundle_hash=request_hash,
+                download_url=f"/download/{request_hash}.zip",
                 is_cache_hit=True
             )
         
@@ -68,12 +69,12 @@ class HandleCacheRequest:
             **self._get_version_kwargs(request.manager, request.versions)
         )
         
-        # Store in cache
-        self._store_dependency_set(dependency_set, bundle_hash)
+        # Store in cache using the request hash
+        self._store_dependency_set(dependency_set, request_hash)
         
         return CacheResponse(
-            bundle_hash=bundle_hash,
-            download_url=f"/download/{bundle_hash}.zip",
+            bundle_hash=request_hash,
+            download_url=f"/download/{request_hash}.zip",
             is_cache_hit=False
         )
     
@@ -264,9 +265,35 @@ class HandleCacheRequest:
         return files
     
     def _store_dependency_set(self, dependency_set: DependencySet, bundle_hash: str) -> None:
-        """Store the dependency set in the cache repository."""
-        # The repository handles all storage operations internally
-        self.cache_repository.store_dependency_set(dependency_set)
+        """Store the dependency set in the cache repository using the provided bundle hash."""
+        import hashlib
+        from domain.hash_constants import HASH_ALGORITHM
+        
+        # Store blobs and save index with the provided bundle hash
+        index_data = {}
+        for file in dependency_set.files:
+            # Calculate file hash
+            hasher = hashlib.new(HASH_ALGORITHM)
+            hasher.update(file.content)
+            file_hash = hasher.hexdigest()
+            
+            self.cache_repository.store_blob(file_hash, file.content)
+            index_data[file.relative_path] = file_hash
+        
+        # Extract manager version info
+        manager = dependency_set.manager
+        if manager == "npm":
+            node_ver = dependency_set.node_version
+            npm_ver = dependency_set.npm_version
+            manager_version = f"{node_ver}_{npm_ver}" if node_ver and npm_ver else "unknown"
+        elif manager == "composer":
+            php_ver = dependency_set.php_version
+            manager_version = php_ver if php_ver else "unknown"
+        else:
+            manager_version = "unknown"
+        
+        # Save index with the provided bundle hash
+        self.cache_repository.save_index(bundle_hash, manager, manager_version, index_data)
         
         # Generate the bundle ZIP file
         self.cache_repository.generate_bundle_zip(bundle_hash)
