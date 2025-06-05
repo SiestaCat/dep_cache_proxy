@@ -1,4 +1,5 @@
 .history
+cache
 
 # Python
 __pycache__/

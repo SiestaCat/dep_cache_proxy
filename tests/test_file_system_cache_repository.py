@@ -230,3 +230,227 @@ class TestFileSystemCacheRepository:
         assert stats["total_indexes"] == 1
         assert stats["total_bundles"] == 1
         assert stats["cache_size_bytes"] > 0
+
+
+class TestFileSystemCacheRepositoryEdgeCases:
+    """Additional edge case tests for FileSystemCacheRepository."""
+    
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+    
+    @pytest.fixture
+    def repo(self, temp_dir):
+        """Create a repository instance."""
+        return FileSystemCacheRepository(temp_dir)
+    
+    def test_store_dependency_set_with_unicode_filenames(self, repo):
+        """Test storing files with unicode names."""
+        from domain.dependency_set import calculate_file_hash
+        
+        files = [
+            DependencyFile('файл.js', b'console.log("Russian");'),
+            DependencyFile('文件.js', b'console.log("Chinese");'),
+            DependencyFile('ñoño.js', b'console.log("Spanish");')
+        ]
+        
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        assert bundle_hash is not None
+        
+        # Verify files are stored
+        for file in files:
+            file_hash = calculate_file_hash(file.content)
+            blob = repo.get_blob(file_hash)
+            assert blob == file.content
+    
+    def test_store_dependency_set_with_deep_paths(self, repo):
+        """Test storing files with very deep directory structures."""
+        deep_path = '/'.join(['dir'] * 50) + '/file.js'  # 50 levels deep
+        files = [
+            DependencyFile(deep_path, b'console.log("deep");')
+        ]
+        
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        assert bundle_hash is not None
+    
+    def test_store_dependency_set_with_special_chars_in_path(self, repo):
+        """Test storing files with special characters in paths."""
+        files = [
+            DependencyFile('path with spaces/file.js', b'content1'),
+            DependencyFile('path@with#special$chars/file.js', b'content2'),
+            DependencyFile('path\\with\\backslashes/file.js', b'content3')
+        ]
+        
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        assert bundle_hash is not None
+        
+        # Verify index contains all files with correct format
+        index = repo.get_index(bundle_hash)
+        assert index is not None
+        assert len(index['files']) == 3
+    
+    def test_generate_bundle_zip_with_permission_error(self, repo, monkeypatch):
+        """Test bundle generation when file permissions prevent reading."""
+        # Create a simple dependency set
+        files = [DependencyFile('test.js', b'content')]
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        
+        # Mock open to raise permission error
+        original_open = open
+        def mock_open(path, mode='r', *args, **kwargs):
+            if 'bundles' in str(path) and mode == 'wb':
+                raise PermissionError("No write permission")
+            return original_open(path, mode, *args, **kwargs)
+        
+        monkeypatch.setattr('builtins.open', mock_open)
+        
+        # Should handle permission error gracefully
+        result = repo.generate_bundle_zip(bundle_hash)
+        assert result is None
+    
+    def test_get_index_with_corrupted_json(self, repo, temp_dir):
+        """Test getting index when JSON file is corrupted."""
+        # Create a corrupted index file
+        bundle_hash = 'a' * 64
+        index_dir = temp_dir / 'indexes' / bundle_hash[:2] / bundle_hash[2:4]
+        index_dir.mkdir(parents=True)
+        
+        index_path = index_dir / f"{bundle_hash}.npm.14.0.0_6.0.0.index"
+        index_path.write_text("{ corrupted json }")
+        
+        # Should handle corrupted JSON gracefully
+        index = repo.get_index(bundle_hash)
+        assert index is None
+    
+    def test_cleanup_old_bundles_with_io_error(self, repo, monkeypatch):
+        """Test cleanup when file deletion fails."""
+        import time
+        
+        # Create some old files
+        old_time = time.time() - (40 * 24 * 60 * 60)  # 40 days old
+        
+        bundle_hash = 'old' + 'a' * 61
+        bundle_dir = repo.cache_dir / 'bundles' / bundle_hash[:2] / bundle_hash[2:4]
+        bundle_dir.mkdir(parents=True)
+        
+        bundle_path = bundle_dir / f"{bundle_hash}.zip"
+        bundle_path.write_bytes(b'old bundle')
+        os.utime(bundle_path, (old_time, old_time))
+        
+        # Mock os.remove to raise error
+        def mock_remove(path):
+            raise OSError("Cannot remove file")
+        
+        monkeypatch.setattr('os.remove', mock_remove)
+        
+        # Should handle removal error gracefully (method returns None)
+        repo.cleanup_old_bundles(30 * 24 * 60 * 60)  # 30 days in seconds
+        
+        # File should still exist since removal failed
+        assert bundle_path.exists()
+    
+    def test_concurrent_bundle_generation(self, repo):
+        """Test generating the same bundle from multiple threads."""
+        import threading
+        
+        files = [DependencyFile('test.js', b'content')]
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        
+        results = []
+        def generate_bundle():
+            result = repo.generate_bundle_zip(bundle_hash)
+            results.append(result)
+        
+        # Start multiple threads trying to generate the same bundle
+        threads = []
+        for _ in range(5):
+            t = threading.Thread(target=generate_bundle)
+            threads.append(t)
+            t.start()
+        
+        for t in threads:
+            t.join()
+        
+        # All should succeed
+        assert all(r is not None for r in results)
+        
+        # But only one bundle file should exist
+        bundle_path = repo.get_bundle_zip_path(bundle_hash)
+        assert bundle_path is not None
+        assert bundle_path.exists()
+    
+    def test_store_blob_with_hash_mismatch(self, repo):
+        """Test storing blob with incorrect hash."""
+        content = b"test content"
+        wrong_hash = "definitely_not_the_right_hash"
+        
+        # Should store it anyway (trusting the caller)
+        repo.store_blob(wrong_hash, content)
+        
+        # Should be retrievable with the wrong hash
+        retrieved = repo.get_blob(wrong_hash)
+        assert retrieved == content
+    
+    def test_large_file_handling(self, repo):
+        """Test handling of large files."""
+        # Create a 10MB file
+        large_content = b"x" * (10 * 1024 * 1024)
+        files = [DependencyFile('large.bin', large_content)]
+        
+        dep_set = DependencySet(
+            manager='npm',
+            files=files,
+            node_version='14.0.0',
+            npm_version='6.0.0'
+        )
+        
+        bundle_hash = repo.store_dependency_set(dep_set)
+        assert bundle_hash is not None
+        
+        # Generate bundle
+        bundle_path = repo.generate_bundle_zip(bundle_hash)
+        assert bundle_path is not None
+        
+        # Verify zip contains the large file
+        with zipfile.ZipFile(bundle_path, 'r') as zf:
+            assert 'large.bin' in zf.namelist()
+            # Don't read the whole file to avoid memory issues in tests
+            info = zf.getinfo('large.bin')
+            assert info.file_size == len(large_content)

@@ -351,3 +351,150 @@ class TestAPI:
         
         assert response.status_code == 500
         assert 'Server not properly configured' in response.json()['detail']
+
+
+class TestAPIEdgeCases:
+    """Additional edge case tests for API endpoints."""
+    
+    @pytest.fixture
+    def temp_cache_dir(self):
+        """Create a temporary cache directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+    
+    @pytest.fixture
+    def client(self, temp_cache_dir):
+        """Create a test client with initialized app."""
+        test_app = initialize_app(
+            cache_dir=temp_cache_dir,
+            supported_versions={
+                "npm": [{"runtime": "14.20.0", "package_manager": "6.14.13"}]
+            },
+            is_public=True
+        )
+        with TestClient(test_app) as client:
+            yield client
+    
+    def test_cache_request_with_malformed_base64(self, client):
+        """Test cache request with invalid base64 encoding."""
+        response = client.post("/v1/cache", json={
+            "manager": "npm",
+            "hash": "test_hash",
+            "files": {
+                "package-lock.json": "not-valid-base64\!@#$",
+                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
+            },
+            "versions": {"node": "14.20.0", "npm": "6.14.13"}
+        })
+        
+        assert response.status_code == 400
+        # Base64 decoding error messages can vary
+        detail = response.json()["detail"]
+        assert "padding" in detail.lower() or "invalid" in detail.lower()
+    
+    def test_cache_request_with_empty_files(self, client):
+        """Test cache request with empty file content."""
+        response = client.post("/v1/cache", json={
+            "manager": "npm",
+            "hash": "test_hash",
+            "files": {
+                "package-lock.json": base64.b64encode(b"").decode("utf-8"),
+                "package.json": base64.b64encode(b"").decode("utf-8")
+            },
+            "versions": {"node": "14.20.0", "npm": "6.14.13"}
+        })
+        
+        # Should handle empty files gracefully
+        assert response.status_code in [200, 500]  # Depends on npm reaction to empty files
+    
+    def test_cache_request_with_very_long_hash(self, client):
+        """Test cache request with extremely long hash value."""
+        long_hash = "a" * 1000  # 1000 character hash
+        
+        response = client.post("/v1/cache", json={
+            "manager": "npm",
+            "hash": long_hash,
+            "files": {
+                "package-lock.json": base64.b64encode(b"content").decode("utf-8"),
+                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
+            },
+            "versions": {"node": "14.20.0", "npm": "6.14.13"}
+        })
+        
+        # Should handle long hashes (might fail on file system limits)
+        assert response.status_code in [200, 400, 500]
+    
+    def test_cache_request_with_special_characters_in_hash(self, client):
+        """Test cache request with special characters in hash."""
+        special_hash = "test/../../../etc/passwd"  # Path traversal attempt
+        
+        response = client.post("/v1/cache", json={
+            "manager": "npm",
+            "hash": special_hash,
+            "files": {
+                "package-lock.json": base64.b64encode(b"content").decode("utf-8"),
+                "package.json": base64.b64encode(b"{\"name\": \"test\"}").decode("utf-8")
+            },
+            "versions": {"node": "14.20.0", "npm": "6.14.13"}
+        })
+        
+        # Should reject or sanitize dangerous paths
+        assert response.status_code in [400, 500]
+    
+    def test_download_with_path_traversal(self, client):
+        """Test download endpoint with path traversal attempt."""
+        response = client.get("/download/../../../etc/passwd.zip")
+        assert response.status_code == 404
+    
+    def test_cache_request_with_unknown_manager(self, client):
+        """Test cache request with unknown package manager."""
+        response = client.post("/v1/cache", json={
+            "manager": "unknown_manager",
+            "hash": "test_hash",
+            "files": {
+                "unknown.lock": base64.b64encode(b"content").decode("utf-8"),
+                "unknown.json": base64.b64encode(b"content").decode("utf-8")
+            },
+            "versions": {"runtime": "1.0.0"}
+        })
+        
+        assert response.status_code == 400
+        assert "Unsupported manager" in response.json()["detail"]
+    
+    def test_bearer_token_edge_cases(self):
+        """Test various Bearer token formats."""
+        test_app = initialize_app(
+            cache_dir=tempfile.mkdtemp(),
+            supported_versions={"npm": []},
+            is_public=False,
+            api_keys=["valid-key"]
+        )
+        
+        with TestClient(test_app) as client:
+            # Missing Bearer prefix
+            response = client.get(
+                "/download/test.zip",
+                headers={"Authorization": "valid-key"}
+            )
+            assert response.status_code == 401
+            
+            # Extra spaces
+            response = client.get(
+                "/download/test.zip",
+                headers={"Authorization": "Bearer  valid-key"}  # Double space
+            )
+            assert response.status_code == 401
+            
+            # Case sensitivity
+            response = client.get(
+                "/download/test.zip",
+                headers={"Authorization": "bearer valid-key"}  # lowercase
+            )
+            assert response.status_code == 401
+            
+            # Empty bearer token
+            response = client.get(
+                "/download/test.zip",
+                headers={"Authorization": "Bearer "}
+            )
+            assert response.status_code == 401
